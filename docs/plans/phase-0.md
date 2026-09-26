@@ -1,0 +1,1009 @@
+# Phase 0 — Scaffold
+
+> Build phase 0 from `ARCHITECTURE.md → Build phases`.
+> Goal: Next.js app with TypeScript strict, Tailwind v4, shadcn/ui, Drizzle, Vitest, ESLint, config loader with tests. A single page saying "Pano henüz hazır değil". All quality-gate checks pass.
+
+---
+
+## 0 · Pre-reads (implementer must do this first)
+
+Read in order — they are the source of truth for every decision below:
+
+1. `AGENTS.md`
+2. `ARCHITECTURE.md`
+3. `DESIGN.md`
+4. `HANDOFF.md`
+
+---
+
+## 1 · Pinned versions
+
+All versions are the current stable releases as of 2026-09-27.
+
+| Package | Version | Role |
+|---|---|---|
+| `next` | `16.3.6` | Framework |
+| `react` / `react-dom` | (bundled with Next 16) | UI library |
+| `typescript` | (bundled with Next 16) | Type checking |
+| `tailwindcss` | `4.3.3` | Styling engine |
+| `@tailwindcss/postcss` | `4.3.3` | PostCSS plugin for Tailwind v4 |
+| `shadcn` (CLI) | `@latest` (v4.x line) | UI primitives generator |
+| `drizzle-orm` | `0.45.3` | ORM |
+| `drizzle-kit` | `0.31.11` | Migration tooling |
+| `better-sqlite3` | `13.0.3` | SQLite driver |
+| `@types/better-sqlite3` | `latest` | Types for the driver |
+| `zod` | `4.6.5` | Config & env validation |
+| `yaml` | `2.9.1` | YAML parsing |
+| `tsx` | `4.23.15` | Run TS scripts / worker |
+| `vitest` | `5.0.2` | Test runner |
+| `eslint` | `10.11.0` | Linter |
+| `typescript-eslint` | `8.70.1` | ESLint TS plugin |
+| `@eslint/js` | `latest` | ESLint recommended rules |
+
+---
+
+## 2 · Commands in order
+
+Run every command from the repository root: `/home/abdulkadir/Desktop/drive-notion`.
+
+### 2.1 — Scaffold Next.js app
+
+The repo already has files at the root (AGENTS.md, etc.), so we scaffold into `./` using `--yes` to accept defaults. The `--no-agents-md` flag prevents overwriting our own AGENTS.md.
+
+```bash
+npx -y create-next-app@16.3.6 ./ \
+  --typescript \
+  --tailwind \
+  --eslint \
+  --app \
+  --src-dir \
+  --import-alias "@/*" \
+  --use-pnpm \
+  --disable-git \
+  --no-agents-md \
+  --yes
+```
+
+> **Note:** If this command fails because the directory is not empty, you have two options:
+> 1. Temporarily move the doc files, run the command, then move them back.
+> 2. Create in a temp directory, then copy the generated files over, preserving our existing docs.
+>
+> Pick whichever works. The result must be: all Next.js scaffold files present, and AGENTS.md / ARCHITECTURE.md / DESIGN.md / HANDOFF.md untouched.
+
+### 2.2 — Verify the scaffold works
+
+```bash
+pnpm dev
+# Ctrl-C after confirming it starts
+```
+
+### 2.3 — Pin and install additional dependencies
+
+```bash
+# Runtime dependencies
+pnpm add drizzle-orm@0.45.3 better-sqlite3@13.0.3 zod@4.6.5 yaml@2.9.1 tsx@4.23.15
+
+# Dev dependencies
+pnpm add -D drizzle-kit@0.31.11 @types/better-sqlite3@latest vitest@5.0.2
+```
+
+After installing, add `better-sqlite3` to `pnpm.onlyBuiltDependencies` in `package.json` so pnpm compiles the native addon:
+
+```jsonc
+// package.json — add at the top level:
+{
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3"]
+  }
+}
+```
+
+Then reinstall to trigger the native build:
+
+```bash
+pnpm install
+```
+
+> ESLint and TypeScript are already installed by `create-next-app`. If `eslint` is not at `10.11.0`, run `pnpm add -D eslint@10.11.0`. Same for `typescript-eslint@8.70.1` and `@eslint/js@latest` if the scaffold did not install them. Check `package.json` after step 2.1 to see what is already there.
+
+### 2.3b — Verify better-sqlite3 native addon
+
+```bash
+node -e "require('better-sqlite3')(':memory:')"
+```
+
+Must exit without error. If it fails, check that `node-gyp` build tools are available (`python3`, `make`, `g++`) and re-run `pnpm install`.
+
+### 2.4 — Initialize shadcn/ui
+
+```bash
+pnpm dlx shadcn@latest init
+```
+
+When prompted, accept defaults. This creates `components.json` and the `src/components/ui/` directory. If it asks about style, pick "New York" (or "default" — either is fine since we override all colors via our design tokens).
+
+> After init, verify `components.json` exists at the repo root and `src/components/ui/` exists.
+
+### 2.5 — Set up `tsconfig.json`
+
+Ensure `strict: true` is in `compilerOptions`. The Next.js scaffold usually sets this. Verify and fix if needed.
+
+```jsonc
+// tsconfig.json — ensure these are set:
+{
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
+}
+```
+
+### 2.6 — Configure Vitest
+
+Create `vitest.config.ts` (see file list in §3). Then add test scripts to `package.json`.
+
+### 2.7 — Configure ESLint
+
+Use the flat config format (ESLint 10 uses `eslint.config.mjs`). Ensure it includes TypeScript rules. The scaffold may already have created this file; if so, extend it rather than replacing.
+
+### 2.8 — Configure Drizzle Kit
+
+Create `drizzle.config.ts` at the root (see §3). This is needed only for migration generation, not at runtime in Phase 0.
+
+---
+
+## 3 · Files to create
+
+Each file is listed with its full path, purpose, and the content it must contain. Files generated by `create-next-app` or `shadcn init` that need modification are marked **(modify)**.
+
+### 3.1 — Configuration files
+
+#### `config/project.example.yaml`
+Purpose: Example config with placeholder values. Real values filled by owner before Phase 2.
+
+```yaml
+project:
+  name: BUMIN-2
+  deadline: "2026-12-31"
+  deliverable: "2 uçan prototip"
+  timezone: Europe/Istanbul
+  stale_days: 3
+
+notion:
+  tasks_data_source_id: "NOTION_DATA_SOURCE_ID_HERE"
+  properties:
+    title: "Name"
+    status: "Durum"
+    department: "Departman"
+    due: "Tarih"
+    blocked: "Tıkalı"
+    blocker_note: "Neden"
+    milestone: "Milestone"
+    next: "Sıradaki"
+  status_groups:
+    todo:
+      - "Yapılacak"
+    active:
+      - "Devam ediyor"
+    done:
+      - "Tamamlandı"
+
+drive:
+  root_folder_id: "DRIVE_ROOT_FOLDER_ID_HERE"
+
+departments:
+  - id: "00"
+    name: "Koordinasyon"
+    notion_value: "00 Koordinasyon"
+    drive_folder_id: "DRIVE_FOLDER_ID_HERE"
+  - id: "01"
+    name: "Avionik"
+    notion_value: "01 Avionik"
+    drive_folder_id: "DRIVE_FOLDER_ID_HERE"
+
+doc_types:
+  test:
+    - "test"
+  report:
+    - "rapor"
+    - "report"
+  decision:
+    - "karar"
+
+milestones:
+  - id: m1
+    name: "İlk uçuş"
+    due: "2026-10-31"
+    notion_value: "M1"
+```
+
+#### `.env.example`
+Purpose: Documents required env vars. No values committed.
+
+```env
+# Database
+DATABASE_PATH=/data/app.db
+
+# Config
+CONFIG_PATH=/app/config/project.yaml
+
+# Sync
+SYNC_INTERVAL_SECONDS=300
+
+# Notion
+NOTION_TOKEN=
+
+# Google Drive (base64-encoded service account JSON)
+GOOGLE_SERVICE_ACCOUNT_JSON_BASE64=
+
+# Timezone
+TZ=Europe/Istanbul
+```
+
+#### `.gitignore` **(modify)**
+Purpose: Add entries for project-specific files. Append to whatever `create-next-app` generated.
+
+```gitignore
+# Append these lines:
+
+# Project config (has real IDs)
+config/project.yaml
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+/data/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Drizzle
+drizzle/meta/
+```
+
+### 3.2 — Vitest config
+
+#### `vitest.config.ts`
+Purpose: Test runner configuration with path aliases matching tsconfig.
+
+```typescript
+import { defineConfig } from "vitest/config";
+import path from "node:path";
+
+export default defineConfig({
+  test: {
+    globals: true,
+    environment: "node",
+    include: ["tests/**/*.test.ts"],
+  },
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
+});
+```
+
+### 3.3 — Drizzle config
+
+#### `drizzle.config.ts`
+Purpose: Drizzle Kit migration generation config. Used only by `drizzle-kit` CLI, not runtime.
+
+```typescript
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  schema: "./src/server/db/schema.ts",
+  out: "./src/server/db/migrations",
+  dialect: "sqlite",
+  dbCredentials: {
+    url: process.env.DATABASE_PATH || "./data/app.db",
+  },
+});
+```
+
+### 3.4 — Config loader and schema
+
+#### `src/server/config.ts`
+Purpose: Loads and validates `config/project.yaml` using zod. Used at startup of both web and worker processes.
+
+The zod schema must:
+- Match the structure in `ARCHITECTURE.md → Configuration` exactly.
+- On validation failure, produce a readable error that names the field and the file path.
+- Export both the schema (for testing) and a `loadConfig()` function.
+
+```typescript
+import { z } from "zod";
+import { readFileSync } from "node:fs";
+import { parse as parseYaml } from "yaml";
+
+// --- Zod schemas ---
+
+const projectSchema = z.object({
+  name: z.string(),
+  deadline: z.string().date("deadline must be a YYYY-MM-DD date string"),
+  deliverable: z.string(),
+  timezone: z.string(),
+  stale_days: z.number().int().positive(),
+});
+
+const notionPropertiesSchema = z.object({
+  title: z.string(),
+  status: z.string(),
+  department: z.string(),
+  due: z.string().optional(),
+  blocked: z.string().optional(),
+  blocker_note: z.string().optional(),
+  milestone: z.string().optional(),
+  next: z.string().optional(),
+});
+
+const statusGroupsSchema = z
+  .object({
+    todo: z.array(z.string()),
+    active: z.array(z.string()),
+    done: z.array(z.string()),
+  })
+  .optional();
+
+const notionSchema = z.object({
+  tasks_data_source_id: z.string().min(1, "notion.tasks_data_source_id is required"),
+  properties: notionPropertiesSchema,
+  status_groups: statusGroupsSchema,
+});
+
+const driveSchema = z.object({
+  root_folder_id: z.string().min(1, "drive.root_folder_id is required"),
+});
+
+const departmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  notion_value: z.string(),
+  drive_folder_id: z.string(),
+});
+
+const milestoneSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  due: z.string().date("milestone due must be a YYYY-MM-DD date string"),
+  notion_value: z.string().optional(),
+});
+
+const docTypesSchema = z.record(z.string(), z.array(z.string()));
+
+export const projectConfigSchema = z.object({
+  project: projectSchema,
+  notion: notionSchema,
+  drive: driveSchema,
+  departments: z.array(departmentSchema).min(1, "At least one department is required"),
+  doc_types: docTypesSchema,
+  milestones: z.array(milestoneSchema).optional(),
+});
+
+export type ProjectConfig = z.infer<typeof projectConfigSchema>;
+
+// --- Loader ---
+
+/**
+ * Loads and validates the project config from a YAML file.
+ * Throws a readable error naming the invalid field and the config file path.
+ */
+export function loadConfig(configPath?: string): ProjectConfig {
+  const filePath = configPath ?? process.env.CONFIG_PATH ?? "config/project.yaml";
+
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, "utf-8");
+  } catch (err) {
+    throw new Error(
+      `Could not read config file: ${filePath}\n${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(raw);
+  } catch (err) {
+    throw new Error(
+      `Invalid YAML in ${filePath}: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+
+  const result = projectConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((issue) => {
+        const path = issue.path.join(".");
+        return `  - ${path}: ${issue.message}`;
+      })
+      .join("\n");
+    throw new Error(`Invalid config in ${filePath}:\n${issues}`);
+  }
+
+  return result.data;
+}
+```
+
+> **Important for Zod 4:** Zod 4 changed some APIs. Before writing this file, the implementer MUST check the current Zod 4 docs (via Context7 or https://zod.dev) for:
+> - Whether `z.string().date()` still exists (it should in Zod 4 — it validates YYYY-MM-DD strings).
+> - Whether `safeParse` returns `{ success, data, error }` (it should).
+> - Whether `error.issues` still has the same shape with `path` and `message`.
+>
+> If any API has changed, adapt the code accordingly. The behavior must remain: on invalid input, throw an `Error` whose message names the field path and the file.
+
+### 3.5 — Config tests
+
+#### `tests/config.test.ts`
+Purpose: Unit tests for `src/server/config.ts`. Three test cases required by AGENTS.md for pure config logic.
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { loadConfig } from "@/server/config";
+import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
+
+const EXAMPLE_PATH = path.resolve(__dirname, "../config/project.example.yaml");
+
+/**
+ * Helper: write YAML string to a temp file and return its path.
+ */
+function writeTempYaml(content: string): string {
+  const tmpFile = path.join(os.tmpdir(), `bumin-test-${Date.now()}.yaml`);
+  fs.writeFileSync(tmpFile, content);
+  return tmpFile;
+}
+
+describe("config loader", () => {
+  it("parses project.example.yaml without errors", () => {
+    const config = loadConfig(EXAMPLE_PATH);
+    expect(config.project.name).toBe("BUMIN-2");
+    expect(config.project.deadline).toBe("2026-12-31");
+    expect(config.departments.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("rejects a missing required field with a readable message naming the field", () => {
+    const yaml = `
+project:
+  deadline: "2026-12-31"
+  deliverable: "test"
+  timezone: Europe/Istanbul
+  stale_days: 3
+notion:
+  tasks_data_source_id: "abc"
+  properties:
+    title: "Name"
+    status: "Durum"
+    department: "Departman"
+drive:
+  root_folder_id: "xyz"
+departments:
+  - id: "00"
+    name: "Test"
+    notion_value: "00 Test"
+    drive_folder_id: "folder"
+doc_types:
+  test: ["test"]
+`;
+
+    const tmpFile = writeTempYaml(yaml);
+    try {
+      expect(() => loadConfig(tmpFile)).toThrow(/project\.name/i);
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
+  it("rejects a wrong type with a readable message naming the field and the file", () => {
+    const yaml = `
+project:
+  name: "BUMIN-2"
+  deadline: "2026-12-31"
+  deliverable: "test"
+  timezone: Europe/Istanbul
+  stale_days: "not-a-number"
+notion:
+  tasks_data_source_id: "abc"
+  properties:
+    title: "Name"
+    status: "Durum"
+    department: "Departman"
+drive:
+  root_folder_id: "xyz"
+departments:
+  - id: "00"
+    name: "Test"
+    notion_value: "00 Test"
+    drive_folder_id: "folder"
+doc_types:
+  test: ["test"]
+`;
+
+    const tmpFile = writeTempYaml(yaml);
+    try {
+      expect(() => loadConfig(tmpFile)).toThrow(/stale_days/i);
+      // Also verify the error mentions the file path
+      try {
+        loadConfig(tmpFile);
+      } catch (e: unknown) {
+        expect((e as Error).message).toContain(tmpFile);
+      }
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
+});
+```
+
+### 3.6 — Tailwind CSS and design tokens
+
+#### `src/app/globals.css` **(modify — extend what shadcn init generates)**
+Purpose: Keep everything `shadcn init` wrote (its `@import "tailwindcss"`, `@theme inline`, and `:root` / `.dark` blocks). Then:
+
+1. Inside the existing `@theme inline` block, add the DESIGN.md color tokens so Tailwind v4 generates utility classes for them (`bg-ground`, `text-ink`, `border-rule`, etc.).
+2. Map shadcn's own CSS variables to the DESIGN.md tokens so shadcn components render with our palette.
+3. Switch dark mode from shadcn's `.dark` class to `prefers-color-scheme: dark`.
+
+The final file should look like this (the `/* shadcn … */` comments mark content that was already there; everything else is added or changed):
+
+```css
+@import "tailwindcss";
+
+/*
+ * shadcn generates an @theme inline block. Keep it and extend it.
+ * @theme inline makes these values available as Tailwind utilities
+ * (bg-ground, text-ink, border-rule, text-caution, etc.)
+ * while still allowing runtime overrides via CSS variables.
+ */
+@theme inline {
+  /* Font family — references the CSS variable set by next/font in layout.tsx */
+  --font-sans: var(--font-atkinson), system-ui, sans-serif;
+
+  /* shadcn's own radius token — keep so shadcn components work */
+  --radius: 10px;
+
+  /* ─── DESIGN.md color tokens (Tailwind utility generation) ─── */
+  --color-ground: var(--ground);
+  --color-panel: var(--panel);
+  --color-rule: var(--rule);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-go: var(--go);
+  --color-caution: var(--caution);
+  --color-caution-tint: var(--caution-tint);
+  --color-warning: var(--warning);
+  --color-warning-tint: var(--warning-tint);
+  --color-progress: var(--progress);
+
+  /* ─── shadcn color tokens (map to DESIGN.md) ─── */
+  --color-background: var(--ground);
+  --color-foreground: var(--ink);
+  --color-card: var(--panel);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--panel);
+  --color-popover-foreground: var(--ink);
+  --color-primary: var(--ink);
+  --color-primary-foreground: var(--ground);
+  --color-secondary: var(--panel);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--panel);
+  --color-muted-foreground: var(--ink-muted);
+  --color-accent: var(--panel);
+  --color-accent-foreground: var(--ink);
+  --color-destructive: var(--warning);
+  --color-destructive-foreground: var(--ground);
+  --color-border: var(--rule);
+  --color-input: var(--rule);
+  --color-ring: var(--progress);
+}
+
+/*
+ * Light-mode token values (default).
+ * These raw CSS variables feed into the @theme inline block above.
+ * Color means status, nothing else (DESIGN.md).
+ */
+:root {
+  --ground: #F4F6F8;
+  --panel: #FFFFFF;
+  --rule: #DDE2E7;
+  --ink: #1A2128;
+  --ink-muted: #5A6570;
+  --go: #1F8F4E;
+  --caution: #8A5A00;
+  --caution-tint: #FFF1CC;
+  --warning: #B42323;
+  --warning-tint: #FDE4E4;
+  --progress: #2F66D0;
+}
+
+/*
+ * Dark-mode token values via prefers-color-scheme (not .dark class).
+ * DESIGN.md: dark mode follows prefers-color-scheme.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #12171C;
+    --panel: #1A2027;
+    --rule: #2A323A;
+    --ink: #E6EAEE;
+    --ink-muted: #9AA5AF;
+    --go: #3FBF74;
+    --caution: #F2B233;
+    --caution-tint: #3A2E10;
+    --warning: #FF6B6B;
+    --warning-tint: #3D1A1A;
+    --progress: #6B9BFF;
+  }
+}
+
+/* ─── Base styles (DESIGN.md → Typography, Shape) ─── */
+
+html {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink);
+  background-color: var(--color-ground);
+  line-height: 1.45;
+}
+
+body {
+  max-width: 1080px;
+  margin: 0;
+  padding: 16px;
+  font-size: 15px;
+}
+
+@media (min-width: 1024px) {
+  body {
+    padding: 24px;
+  }
+}
+
+/* No gradients, no shadows, no glassmorphism — DESIGN.md */
+```
+
+> **Implementation notes:**
+> - `shadcn init` generates its own `@theme inline` block with `--color-background`, `--color-foreground`, etc. and a `:root` / `.dark` block setting raw values. **Do not delete it.** Merge the DESIGN.md tokens into the same `@theme inline` block and replace shadcn's `:root` / `.dark` with the `:root` / `@media (prefers-color-scheme: dark)` blocks above.
+> - If shadcn's init output uses different variable naming conventions in its version, adapt accordingly — the requirement is: shadcn's semantic variables (`background`, `foreground`, `card`, `border`, `input`, `muted-foreground`, `ring`, `radius`) resolve to DESIGN.md tokens, and the DESIGN.md tokens (`ground`, `ink`, `rule`, `panel`, `go`, `caution`, `warning`, `progress`, etc.) generate Tailwind utilities via `@theme inline`.
+> - Remove any `.dark { … }` block that shadcn generates. Dark mode is `prefers-color-scheme` only.
+
+### 3.7 — Layout and page
+
+#### `src/app/layout.tsx` **(modify — replace scaffold contents)**
+Purpose: Root layout with Atkinson Hyperlegible Next font wired via `next/font/google`, HTML lang="tr".
+
+```tsx
+import type { Metadata } from "next";
+import { Atkinson_Hyperlegible_Next } from "next/font/google";
+import "./globals.css";
+
+const atkinson = Atkinson_Hyperlegible_Next({
+  variable: "--font-atkinson",
+  subsets: ["latin", "latin-ext"],
+  weight: ["400", "600"],
+  display: "swap",
+});
+
+export const metadata: Metadata = {
+  title: "BUMIN-2",
+  description: "BUMIN-2 proje takip panosu",
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="tr" className={atkinson.variable}>
+      <body>{children}</body>
+    </html>
+  );
+}
+```
+
+#### `src/app/page.tsx` **(modify — replace scaffold contents)**
+Purpose: Empty-state dashboard page. No fake panels. Shows "Pano henüz hazır değil" — the app is scaffolded but not wired to data yet.
+
+```tsx
+export const dynamic = "force-dynamic";
+
+export default function DashboardPage() {
+  return (
+    <main
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "60vh",
+      }}
+    >
+      <p
+        style={{
+          color: "var(--color-ink-muted)",
+          fontSize: "18px",
+          fontWeight: 400,
+        }}
+      >
+        Pano henüz hazır değil
+      </p>
+    </main>
+  );
+}
+```
+
+### 3.8 — Drizzle schema stub
+
+#### `src/server/db/schema.ts`
+Purpose: Empty Drizzle schema file. Actual tables are added in Phase 1. Needed now so `drizzle.config.ts` does not error and `typecheck` passes.
+
+```typescript
+// Database schema — tables are added in Phase 1.
+// This file is the single source of truth for the SQLite schema (ARCHITECTURE.md).
+```
+
+### 3.9 — ESLint config
+
+#### `eslint.config.mjs` **(modify if needed)**
+Purpose: Flat ESLint config with TypeScript rules. The scaffold may already have created this; if so, ensure it includes `typescript-eslint` rules.
+
+If the scaffold did NOT create one, or created a legacy `.eslintrc.*`, replace with:
+
+```javascript
+import js from "@eslint/js";
+import tseslint from "typescript-eslint";
+
+export default [
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    ignores: [".next/", "node_modules/", "src/server/db/migrations/"],
+  },
+];
+```
+
+> **Note:** `create-next-app@16` may already ship with a modern flat config. In that case, extend it rather than replacing. The key requirement: TypeScript rules are active and the quality gate (`pnpm lint`) passes.
+
+### 3.10 — Package.json scripts and engine **(modify)**
+
+Ensure these scripts and the `engines` field exist in `package.json`:
+
+```json
+{
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run"
+  }
+}
+```
+
+- `dev` — may already use `--turbopack` from the scaffold. Keep it.
+- `worker` script is added in Phase 1 along with `src/worker/index.ts`.
+- `typecheck`, `lint`, `test` — the quality-gate commands from AGENTS.md.
+- `engines.node >= 24` — matches the stack requirement (ARCHITECTURE.md: Node.js 24 LTS).
+
+### 3.11 — Test fixture directory
+
+#### `tests/fixtures/.gitkeep`
+Purpose: Empty directory placeholder for test fixtures (AGENTS.md: "Fixtures live only under `tests/fixtures/`").
+
+```
+```
+
+---
+
+## 4 · Files NOT created yet
+
+These directories and files belong to later phases. Do not create empty folders for them:
+
+- `src/worker/index.ts` — Phase 1 (worker script added then too)
+- `src/server/db/client.ts`, `migrations/` — Phase 1
+- `src/server/integrations/` — Phase 2 / 4
+- `src/server/events/` — Phase 2
+- `src/server/domain/` — Phase 3
+- `src/server/queries/` — Phase 3
+- `src/components/dashboard/` — Phase 3
+- `src/app/aktivite/`, `src/app/departman/` — Phase 6
+- `src/app/api/health/` — Phase 1
+- `scripts/` — Phase 2 / 4
+- `Dockerfile`, `docker-compose.yml` — Phase 5
+
+---
+
+## 5 · Complete file tree after Phase 0
+
+```
+drive-notion/
+├── .env.example
+├── .gitignore                  # extended with project entries
+├── AGENTS.md                   # untouched
+├── ARCHITECTURE.md             # untouched
+├── DESIGN.md                   # untouched
+├── HANDOFF.md                  # updated at end of phase
+├── components.json             # generated by shadcn init
+├── config/
+│   └── project.example.yaml
+├── docs/
+│   └── plans/
+│       └── phase-0.md          # this plan
+├── drizzle.config.ts
+├── eslint.config.mjs
+├── next.config.ts              # generated by create-next-app
+├── package.json                # 6 scripts + engines, pnpm.onlyBuiltDependencies
+├── pnpm-lock.yaml
+├── postcss.config.mjs          # generated (Tailwind v4 PostCSS)
+├── src/
+│   ├── app/
+│   │   ├── globals.css         # shadcn base + DESIGN.md tokens via @theme inline
+│   │   ├── layout.tsx          # Atkinson font, lang="tr"
+│   │   └── page.tsx            # "Pano henüz hazır değil"
+│   ├── components/
+│   │   └── ui/                 # shadcn primitives (generated)
+│   ├── lib/
+│   │   └── utils.ts            # cn() helper (generated by shadcn)
+│   ├── server/
+│   │   ├── config.ts           # zod schema + loadConfig()
+│   │   └── db/
+│   │       └── schema.ts       # empty stub
+├── tests/
+│   ├── config.test.ts
+│   └── fixtures/
+│       └── .gitkeep
+├── tsconfig.json               # strict: true
+└── vitest.config.ts
+```
+
+---
+
+## 6 · Post-scaffold verification
+
+### 6.1 — better-sqlite3 native addon
+
+```bash
+node -e "require('better-sqlite3')(':memory:')"
+```
+
+Must exit 0 with no output. If it throws, the native addon was not compiled — see §2.3b.
+
+### 6.2 — Quality gate (all four must pass)
+
+```bash
+pnpm typecheck     # exits 0, no type errors
+pnpm lint          # exits 0, no lint errors
+pnpm test          # 3 tests pass (config.test.ts)
+pnpm build         # exits 0, Next.js production build succeeds
+```
+
+### 6.3 — Config validation tests
+
+The three tests in `tests/config.test.ts`:
+
+| # | Test | Expected |
+|---|---|---|
+| 1 | `loadConfig("config/project.example.yaml")` | Returns a valid `ProjectConfig` with `project.name === "BUMIN-2"` |
+| 2 | YAML with `project.name` removed | Throws `Error` whose message contains `project.name` |
+| 3 | YAML with `stale_days: "not-a-number"` | Throws `Error` whose message contains `stale_days` AND the file path |
+
+### 6.4 — Visual check
+
+```bash
+pnpm dev
+```
+
+Open the browser at `http://localhost:3000`:
+
+- Page shows "Pano henüz hazır değil" centered, in `ink-muted` color, 18px.
+- Font is Atkinson Hyperlegible Next (check in DevTools → Computed → font-family).
+- Background is `#F4F6F8` in light mode, `#12171C` in dark mode.
+- No placeholder panels, no fake data, no default Next.js styling.
+
+Take screenshots at 1280px and 390px widths (both light and dark) using the browser subagent.
+
+### 6.5 — Verify design tokens
+
+In browser DevTools → Elements → `<html>`:
+- `--color-ground`, `--color-ink`, etc. are all defined.
+- `--font-atkinson` CSS variable is set by `next/font`.
+- Switching to dark mode (DevTools → Rendering → prefers-color-scheme: dark) changes all token values.
+- Tailwind utilities `bg-ground`, `text-ink`, `border-rule` etc. are generated (inspect computed styles).
+
+### 6.6 — shadcn Button renders with design tokens
+
+Add a temporary shadcn Button to the page (or test it in isolation):
+
+```bash
+pnpm dlx shadcn@latest add button
+```
+
+Then temporarily render `<Button variant="outline">Test</Button>` on the page. Verify:
+
+- The button's border color resolves to `--rule` (light: `#DDE2E7`, dark: `#2A323A`).
+- Text color resolves to `--ink`.
+- Background resolves to `--ground` or `--panel`.
+
+Remove the temporary test button after verification. The `src/components/ui/button.tsx` file stays — it will be used by dashboard components in Phase 3.
+
+---
+
+## 7 · HANDOFF.md update
+
+After Phase 0 passes, rewrite `HANDOFF.md` to:
+
+```markdown
+# Current state
+
+Phase 0 (Scaffold) is complete. The app skeleton runs, all quality-gate checks pass, and the config loader is tested.
+
+## Completed
+
+- Next.js 16.3.6 scaffold with TypeScript strict, Tailwind CSS v4, shadcn/ui.
+- Drizzle ORM, Vitest, ESLint installed and configured.
+- `better-sqlite3` native addon verified (`pnpm.onlyBuiltDependencies`).
+- Design tokens from DESIGN.md wired into Tailwind v4 `@theme inline`; Tailwind generates `bg-ground`, `text-ink`, `border-rule`, etc.
+- shadcn semantic variables (`background`, `foreground`, `card`, `border`, `input`, `muted-foreground`, `ring`, `radius`) mapped to DESIGN.md tokens.
+- Dark mode via `prefers-color-scheme`, not `.dark` class.
+- Atkinson Hyperlegible Next font loaded via next/font/google.
+- `config/project.example.yaml` with placeholder values.
+- `src/server/config.ts`: zod schema + loadConfig(), validates against project.yaml.
+- Three unit tests for config loading: example passes; missing field and wrong type fail with readable messages.
+- `.env.example` with all env var names.
+- Six package.json scripts (dev, build, start, typecheck, lint, test). `engines.node >= 24`.
+- shadcn Button installed and verified to render with DESIGN.md token colors.
+- Single page: "Pano henüz hazır değil" — no fake panels.
+
+## In progress
+
+- Nothing.
+
+## Known issues
+
+- None.
+
+## Next recommended step
+
+Phase 1: Database and worker skeleton — schema, migrations, sync loop with sync_state, /api/health, worker script.
+
+## Important context
+
+- The owner fills `config/project.yaml` before Phase 2: Notion tasks data source ID and property names, Drive root folder ID, department folder IDs, milestones.
+- Before Phase 2: connect the Notion integration to the tasks database with read-content capability only.
+- Before Phase 4: share the BUMIN Drive root folder with the Google service account email as Viewer.
+```
+
+---
+
+## 8 · Phase 0 "done when" checklist
+
+From `ARCHITECTURE.md`:
+
+> **Phase 0 — Scaffold**: Done when: all checks pass on the empty app and an invalid config produces a readable error.
+
+| # | Criterion | How to verify |
+|---|---|---|
+| 1 | `better-sqlite3` native addon loads | `node -e "require('better-sqlite3')(':memory:')"` exits 0 |
+| 2 | `pnpm typecheck` passes | Run command, exit code 0 |
+| 3 | `pnpm lint` passes | Run command, exit code 0 |
+| 4 | `pnpm test` passes | Run command, 3/3 tests pass |
+| 5 | `pnpm build` passes | Run command, exit code 0 |
+| 6 | Invalid config → readable error naming the field | Test #2 and #3 in `config.test.ts` |
+| 7 | Invalid config → readable error naming the file | Test #3 checks file path in message |
+| 8 | App shows "Pano henüz hazır değil" with no fake panels | Visual check at `localhost:3000` |
+| 9 | DESIGN.md tokens generate Tailwind utilities | `bg-ground`, `text-ink`, `border-rule` resolve in DevTools |
+| 10 | shadcn Button border uses `--rule` color | Render `<Button variant="outline">`, inspect border |
+| 11 | Font is Atkinson Hyperlegible Next | Browser DevTools computed style |
+| 12 | Dark mode works via `prefers-color-scheme` | Toggle in DevTools, all tokens switch; no `.dark` class used |
+| 13 | `engines.node >= 24` in package.json | `grep engines package.json` |
+| 14 | HANDOFF.md is updated | File reflects Phase 0 completion |
