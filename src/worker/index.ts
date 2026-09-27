@@ -55,7 +55,8 @@ async function main() {
       await syncNotion(db, config);
       console.log(
         JSON.stringify({
-          event: "sync_notion_complete",
+          event: "loop_step",
+          step: "sync_notion",
           durationMs: Date.now() - notionStart,
           timestamp: new Date().toISOString(),
         }),
@@ -66,7 +67,8 @@ async function main() {
       normalizePending(db);
       console.log(
         JSON.stringify({
-          event: "normalize_complete",
+          event: "loop_step",
+          step: "normalize",
           durationMs: Date.now() - normalizeStart,
           timestamp: new Date().toISOString(),
         }),

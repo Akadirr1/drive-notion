@@ -166,7 +166,7 @@ export async function syncNotion(
     console.log(
       JSON.stringify({
         event: "sync_notion_complete",
-        mode: isSeed ? "seed" : "incremental",
+        mode: isSeed ? "seed" : "sync",
         pages: allPages.length,
         timestamp: now,
       })
