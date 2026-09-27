@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+/*
+ * shadcn generates an @theme inline block. Keep it and extend it.
+ * @theme inline makes these values available as Tailwind utilities
+ * (bg-ground, text-ink, border-rule, text-caution, etc.)
+ * while still allowing runtime overrides via CSS variables.
+ */
+@theme inline {
+  /* Font family — references the CSS variable set by next/font in layout.tsx */
+  --font-sans: var(--font-atkinson), system-ui, sans-serif;
+
+  /* shadcn's own radius token — keep so shadcn components work */
+  --radius: 10px;
+
+  /* ─── DESIGN.md color tokens (Tailwind utility generation) ─── */
+  --color-ground: var(--ground);
+  --color-panel: var(--panel);
+  --color-rule: var(--rule);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-go: var(--go);
+  --color-caution: var(--caution);
+  --color-caution-tint: var(--caution-tint);
+  --color-warning: var(--warning);
+  --color-warning-tint: var(--warning-tint);
+  --color-progress: var(--progress);
+
+  /* ─── shadcn color tokens (map to DESIGN.md) ─── */
+  --color-background: var(--ground);
+  --color-foreground: var(--ink);
+  --color-card: var(--panel);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--panel);
+  --color-popover-foreground: var(--ink);
+  --color-primary: var(--ink);
+  --color-primary-foreground: var(--ground);
+  --color-secondary: var(--panel);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--panel);
+  --color-muted-foreground: var(--ink-muted);
+  --color-accent: var(--panel);
+  --color-accent-foreground: var(--ink);
+  --color-destructive: var(--warning);
+  --color-destructive-foreground: var(--ground);
+  --color-border: var(--rule);
+  --color-input: var(--rule);
+  --color-ring: var(--progress);
+}
+
+/*
+ * Light-mode token values (default).
+ * These raw CSS variables feed into the @theme inline block above.
+ * Color means status, nothing else (DESIGN.md).
+ */
+:root {
+  --ground: #F4F6F8;
+  --panel: #FFFFFF;
+  --rule: #DDE2E7;
+  --ink: #1A2128;
+  --ink-muted: #5A6570;
+  --go: #1F8F4E;
+  --caution: #8A5A00;
+  --caution-tint: #FFF1CC;
+  --warning: #B42323;
+  --warning-tint: #FDE4E4;
+  --progress: #2F66D0;
+}
+
+/*
+ * Dark-mode token values via prefers-color-scheme (not .dark class).
+ * DESIGN.md: dark mode follows prefers-color-scheme.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #12171C;
+    --panel: #1A2027;
+    --rule: #2A323A;
+    --ink: #E6EAEE;
+    --ink-muted: #9AA5AF;
+    --go: #3FBF74;
+    --caution: #F2B233;
+    --caution-tint: #3A2E10;
+    --warning: #FF6B6B;
+    --warning-tint: #3D1A1A;
+    --progress: #6B9BFF;
+  }
+}
+
+/* ─── Base styles (DESIGN.md → Typography, Shape) ─── */
+
+html {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink);
+  background-color: var(--color-ground);
+  line-height: 1.45;
+}
+
+body {
+  max-width: 1080px;
+  margin: 0;
+  padding: 16px;
+  font-size: 15px;
+}
+
+@media (min-width: 1024px) {
+  body {
+    padding: 24px;
+  }
+}
+
+/* No gradients, no shadows, no glassmorphism — DESIGN.md */
