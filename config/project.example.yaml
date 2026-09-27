@@ -1,0 +1,53 @@
+project:
+  name: BUMIN-2
+  deadline: "2026-12-31"
+  deliverable: "2 uçan prototip"
+  timezone: Europe/Istanbul
+  stale_days: 3
+
+notion:
+  tasks_data_source_id: "NOTION_DATA_SOURCE_ID_HERE"
+  properties:
+    title: "Name"
+    status: "Durum"
+    department: "Departman"
+    due: "Tarih"
+    blocked: "Tıkalı"
+    blocker_note: "Neden"
+    milestone: "Milestone"
+    next: "Sıradaki"
+  status_groups:
+    todo:
+      - "Yapılacak"
+    active:
+      - "Devam ediyor"
+    done:
+      - "Tamamlandı"
+
+drive:
+  root_folder_id: "DRIVE_ROOT_FOLDER_ID_HERE"
+
+departments:
+  - id: "00"
+    name: "Koordinasyon"
+    notion_value: "00 Koordinasyon"
+    drive_folder_id: "DRIVE_FOLDER_ID_HERE"
+  - id: "01"
+    name: "Avionik"
+    notion_value: "01 Avionik"
+    drive_folder_id: "DRIVE_FOLDER_ID_HERE"
+
+doc_types:
+  test:
+    - "test"
+  report:
+    - "rapor"
+    - "report"
+  decision:
+    - "karar"
+
+milestones:
+  - id: m1
+    name: "İlk uçuş"
+    due: "2026-10-31"
+    notion_value: "M1"
