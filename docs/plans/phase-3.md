@@ -51,7 +51,7 @@ Pure functions, fully unit-tested with fixture data. Never imported by UI code d
 Departments are the 17 work packages (WP-00 … WP-16). Status is computed per-department from `notion_tasks` where `archived = 0`, in priority order:
 
 1. `blocked`: at least one non-done task with `blocked = true`
-2. `stale`: has `active` tasks and no project event for the department in `stale_days`. Latest activity is `max(latest_event_at, max_last_edited_time)` among the department's non-archived tasks.
+2. `stale`: has `active` tasks and no activity in `stale_days`. Latest activity is `max(latest_event_at, max_last_edited_time)` among the department's non-archived tasks.
 3. `active`: has at least one `active` (non-blocked) task
 4. `waiting`: some tasks are `done`, the rest are `todo` (none `active`)
 5. `not_started`: all tasks are `todo` (none `done`, none `active`)
@@ -356,7 +356,7 @@ daysLeft = Math.ceil((deadlineMs - todayMs) / 86_400_000);
 import type { DepartmentStatusResult, QuietSummary } from '@/server/domain/department-status';
 import type { NextAction } from '@/server/domain/next-action';
 import type { ProgressResult, CountsInput } from '@/server/domain/progress';
-import { getReaderDb } from '@/server/db/client';
+import { getReaderDb, type WriterDb } from '@/server/db/client';
 import { loadConfig, type ProjectConfig } from '@/server/config';
 
 export interface ProjectEventRow {
@@ -389,17 +389,15 @@ export interface DashboardData {
  * DB-aware wrapper for getting dashboard data.
  * Returns null when the database file does not exist yet (empty state).
  */
-export function getDashboardData(): DashboardData | null {
-  const db = getReaderDb();
+export function getDashboardData(db: WriterDb | null, config: ProjectConfig): DashboardData | null {
   if (!db) return null;
-  const config = loadConfig();
   return computeDashboardData(db, config, new Date());
 }
 
 /**
  * Core query logic with injected dependencies for testability.
  */
-export function computeDashboardData(db: any, config: ProjectConfig, now: Date): DashboardData {
+export function computeDashboardData(db: WriterDb, config: ProjectConfig, now: Date): DashboardData {
   // Implementation below
 }
 ```
@@ -472,8 +470,8 @@ interface DeadlineStripProps {
 - Below bar: progress text (13px, `ink-muted`)
 
 **Sync status sub-component** (inline or in same file):
-- Shows "Son senkron N dk önce" in `ink-muted` 13px
-- Relative time: use the `relativeTime` utility (§ 2.12)
+- Shows "Son senkron {relativeTimeAgo}" in `ink-muted` 13px (or "Henüz senkron yok" if `lastSuccessAt` is null)
+- Relative time: use the `relativeTimeAgo` utility (§ 2.12)
 
 ### 2.7. `src/components/dashboard/next-action.tsx` — CREATE
 
@@ -634,7 +632,7 @@ interface StaleBannerProps {
 - If `ok === false`, render a full-width banner at the very top of the page:
   - Background: `caution-tint`
   - Text: `caution` color, 13px
-  - Message: `"Veriler {relativeTime} önce güncellendi. Senkron çalışmıyor olabilir."` where `{relativeTime}` is computed from `lastSuccessAt` (or "bilinmiyor" if null)
+  - Message: If `lastSuccessAt` is null: `"Veriler henüz hiç güncellenmedi."`; otherwise `"Veriler {relativeTimeAgo} güncellendi. Senkron çalışmıyor olabilir."` where `{relativeTimeAgo}` is computed from `lastSuccessAt`.
 
 ### 2.12. `src/lib/format.ts` — CREATE
 
@@ -644,7 +642,7 @@ interface StaleBannerProps {
 
 ```typescript
 /**
- * Turkish relative time string.
+ * Turkish relative time string (short form for feed rows).
  * Rules from DESIGN.md:
  * - < 1 min  → "az önce"
  * - < 60 min → "{n} dk"
@@ -653,6 +651,17 @@ interface StaleBannerProps {
  * - else     → "{n} gün"
  */
 export function relativeTime(isoTimestamp: string, now?: Date): string;
+
+/**
+ * Turkish relative time string for sentences (sync status, stale banner).
+ * Rules:
+ * - < 1 min  → "az önce"
+ * - < 60 min → "{n} dk önce"
+ * - < 24 hr  → "{n} sa önce"
+ * - < 48 hr  → "dün"
+ * - else     → "{n} gün önce"
+ */
+export function relativeTimeAgo(isoTimestamp: string, now?: Date): string;
 
 /**
  * Format a YYYY-MM-DD date as Turkish: "3 Ekim", "31 Aralık 2026"
@@ -730,12 +739,12 @@ export default async function DashboardPage() {
   // 2. Read last visit from cookie
   const lastVisit = await getLastVisit();
 
-  // 3. Get dashboard data
-  const data = getDashboardData();
-
-  // 4. Get health status (for stale banner + sync status)
+  // 3. Get database and health status
   const db = getReaderDb();
   const health = getHealth(db);
+
+  // 4. Get dashboard data using loaded config
+  const data = getDashboardData(db, config);
 
   // 5. If no data (DB doesn't exist), show empty state
   if (!data) {
@@ -911,6 +920,16 @@ export const doneDeptTasks = [
 | 3 | 3 hours ago | "3 sa" |
 | 4 | 25 hours ago | "dün" |
 | 5 | 3 days ago | "3 gün" |
+
+**Test cases for `relativeTimeAgo`:**
+
+| # | Input | Expected |
+|---|---|---|
+| 1 | 30 seconds ago | "az önce" |
+| 2 | 5 minutes ago | "5 dk önce" |
+| 3 | 3 hours ago | "3 sa önce" |
+| 4 | 25 hours ago | "dün" |
+| 5 | 3 days ago | "3 gün önce" |
 
 **Test cases for `formatDateTurkish`:**
 

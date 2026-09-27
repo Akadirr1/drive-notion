@@ -51,13 +51,14 @@ export function getWriterDb(): WriterDb {
  * is picked up on subsequent calls without restarting.
  */
 export function getReaderDb(): WriterDb | null {
-  if (readerDb) {
-    return readerDb;
-  }
-
   const dbPath = getDbPath();
   if (!fs.existsSync(dbPath)) {
+    readerDb = null;
     return null;
+  }
+
+  if (readerDb) {
+    return readerDb;
   }
 
   const sqlite = new Database(dbPath, { readonly: true });

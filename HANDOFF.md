@@ -1,45 +1,57 @@
 # Current state
 
-The Notion pipeline has been adapted to the real BUMIN Kanban schema on branch `feat/notion-real-schema`. Schema validation supports both `status` and `select` status types with group exhaustiveness validation, `notion.blocked_statuses`, query-level `notion.row_filter`, `priority_rank` and `sort_order` mapping, regex-based `doc_types` validation, and Drizzle migration `0001_bumpy_mentor.sql`. All 74 tests pass and the full quality gate is green.
+Phase 3 (Dashboard v1 on Notion Data) is complete on branch `feat/phase-3-dashboard`. The single-screen dashboard is live, wired to real Notion data in SQLite. All pure domain logic (department status, next action, progress, counts), query layer, six dashboard components, stale data banner, client visit manager cookie, Turkish grammar in sentences (`relativeTime` / `relativeTimeAgo`), and design system tokens are implemented and fully unit-tested (122 tests passing across 10 test suites). All quality gate checks pass cleanly.
 
 ## Completed
 
-- **Select status property**: `validateSchema()` accepts `"status"` or `"select"` for `notion.properties.status`. For select, `status_groups` is required and every option must appear in exactly one group (fails with readable error naming unlisted/duplicated options). Unrecognized options in config log a warning. `mapPage()` reads `.select.name` or `.status.name`, mapping empty status to "todo" without warning.
-- **Blocked statuses**: added `notion.blocked_statuses`. If a task's status is in this list (or configured blocked checkbox is true), `blocked = 1`; otherwise 0. Every configured value must exist in schema options. `blockerNote` is stored only while blocked; otherwise null.
-- **Row filter**: added `notion.row_filter` ({ property, equals }). `validateSchema()` verifies the property exists, is a select, and `equals` is an option. `buildRowFilter()` builds the Notion select filter, passed to `queryDataSource()` on every page in `collector.ts` and `smoke-notion.ts`. A row leaving the filter is archived on complete fetch.
-- **Priority and sort order**: added optional `notion.properties.priority` (select) and `notion.properties.order` (number). Added `priority_rank` (integer) and `sort_order` (real) to `notion_tasks` table and generated migration `src/server/db/migrations/0001_bumpy_mentor.sql`. `diffTask()` and `hasTaskChanged()` detect changes without emitting semantic events.
-- **Doc types regex validation**: `doc_types` values validated as case-insensitive regular expressions at config load time via Zod `superRefine`.
-- **Config & example**: updated Zod schemas in `src/server/config.ts` and updated `config/project.example.yaml` to the real BUMIN Kanban structure.
-- **Documentation**: updated `ARCHITECTURE.md` configuration example, schema, Notion sync, next action, and doc_types semantics.
-- **Test coverage**: 74 tests passing across 5 test suites (`tests/map-page.test.ts`, `tests/collector.test.ts`, `tests/config.test.ts`, `tests/normalizer.test.ts`, `tests/health.test.ts`).
+- **Domain logic (`src/server/domain/`)**:
+  - `department-status.ts`: pure function computing 7 department states (`blocked`, `stale`, `active`, `waiting`, `not_started`, `done`, `idle`) in priority order with activity fallback (`max(latest_event_at, max_last_edited_time)`), plus `computeQuietSummary` for collapsed quiet departments ("{n} WP başlamadı · {k} WP beklemede · {m} tamamlandı").
+  - `next-action.ts`: picks the single highest-priority non-done task (`is_next = 1` first, else active non-blocked by `priority_rank`, `sort_order`, `dueDate`, else todo tasks with the same ordering).
+  - `progress.ts`: calculates days left to deadline in project timezone, completion percentage, progress text ("{done} / {total} görev tamamlandı · %{percent}"), and Monday 00:00 midnight in project timezone for weekly counts.
+- **Formatting utilities (`src/lib/format.ts`)**:
+  - `relativeTime`: short form for event feeds ("az önce", "12 dk", "3 sa", "dün", "3 gün").
+  - `relativeTimeAgo`: sentence form for sync status and stale banner ("az önce", "12 dk önce", "3 sa önce", "dün", "3 gün önce").
+  - `formatDateTurkish`: Turkish month and date formatting without year if in the same year.
+  - `formatDeadline`: Turkish formatted deadline with deliverable ("31 Aralık, 2 uçan prototip").
+- **Query layer (`src/server/queries/dashboard.ts`)**:
+  - `computeDashboardData(db: WriterDb, config: ProjectConfig, now: Date)`: executes all SQLite reads for non-archived tasks, recent events (last 48 hours, limit 5), weekly completed count, and department statuses.
+  - `getDashboardData(db: WriterDb | null, config: ProjectConfig)`: safe wrapper returning null if DB client is null.
+- **Dashboard UI components (`src/components/dashboard/`)**:
+  - `deadline-strip.tsx`: project name, days left (40px font), deadline & deliverable, 6px progress bar, sync status indicator.
+  - `next-action.tsx`: "Şimdi ne yapmalıyım?", 2-line clamped task title with full title on hover, Notion link, meta subtitle, empty state.
+  - `counts.tsx`: 3-column metric display for "Tıkalı" (red warning only when > 0), "Bu hafta biten", "Devam".
+  - `annunciator.tsx`: "Kim ne durumda?", loud tiles (blocked, stale, active with green dot), links to Google Drive folders, collapsed quiet summary line below.
+  - `event-feed.tsx`: "Son 48 saat", bordered list rows with new event dot (based on cookie), Lucide icons, Turkish event sentences, WP id, relative time.
+  - `stale-banner.tsx`: full-width caution banner when sync health `ok: false` ("Veriler {relativeTimeAgo} güncellendi. Senkron çalışmıyor olabilir.").
+  - `client-visit-manager.tsx`: non-HTTP-only cookie `bumin_last_visit` set on mount.
+- **Dashboard page (`src/app/page.tsx`)**:
+  - Server Component assembling all panels with `force-dynamic`. Gracefully renders error message if config fails to parse, and empty state if database file does not exist yet.
+- **Design system & tokens (`src/app/globals.css`, `layout.tsx`)**:
+  - Atkinson Hyperlegible Next font configured. Light and dark modes with exact tokens from `DESIGN.md`. Progress bar track/fill and 2-line clamp utilities.
+- **Documentation updates**:
+  - `ARCHITECTURE.md`: updated Derived logic section with 7 department statuses, annunciator loud/quiet rules, next action ordering, progress and counts.
+  - `DESIGN.md`: updated department status words, annunciator description, progress layout, counts layout, and 2-line task title clamping rule.
+  - `docs/plans/phase-3.md`: updated with Amendments A and B.
+- **Quality gate & visual verification**:
+  - Full suite passes: `pnpm typecheck`, `pnpm lint`, `pnpm test` (122 tests), `pnpm build`.
+  - Visual verification with real Notion data at 1280px and 390px in light and dark modes passed against the `DESIGN.md` review checklist.
 
 ## In progress
 
-Live checks awaiting real `NOTION_TOKEN` in `.env` and IDs in `config/project.yaml`:
-- Smoke script (`pnpm smoke:notion`) verification with live BUMIN Kanban data source.
-- First sync is a seed verification on disk (`notion_tasks > 0`, `seeded = 1`, `raw_events = 0`, `project_events = 0`).
-- Starting a task: set Durum from `BAŞLANMADI` or `HAZIR` to `AKTİF` → emits `status:active` raw event and creates `TASK_STARTED` project event.
-- Blocking a task: set Durum to `BLOKE` (no checkbox) → emits `blocked:true` raw event and creates `TASK_BLOCKED` project event with blocker note.
-- Row filter verification: rows with `Grup = Görev` are ingested; non-task rows (Work Package, Gate) are filtered out; a task whose `Grup` is changed gets marked `archived = 1`.
-- `/api/health` returns `sources.notion.implemented = true` and `ok = true`.
-- Unknown department stores `department_id = NULL` and logs warning.
-- Missing/wrong property records readable error in `sync_state.last_error`.
-- Trashed task in Notion marked `archived = 1` with no event emitted.
+- None. Phase 3 is complete.
 
 ## Known issues
 
-- None.
+- Next.js Turbopack build logs 3 font fallback override warnings for `Atkinson Hyperlegible Next` (font loads and renders properly in browser).
 
 ## Next recommended step
 
-1. Fill real IDs in `config/project.yaml` and set `NOTION_TOKEN` in `.env`.
-2. Run `pnpm smoke:notion` to verify connection with live Notion Kanban data.
-3. Run the worker and complete the live checks.
-4. Proceed to Phase 3: Dashboard UI foundation.
+1. Merge `feat/phase-3-dashboard` into `main`.
+2. Proceed to Phase 4: Google Drive Integration & Sync.
 
 ## Important context
 
-- "Durum" in the real BUMIN database is a `select` property (BAŞLANMADI, HAZIR, AKTİF, BLOKE, DOĞRULAMAYA HAZIR, DOĞRULANDI, KAPALI).
-- Tasks are blocked when `Durum = BLOKE`. Blocker note in "Engel" is ignored unless the task is blocked.
-- Only rows with `Grup = Görev` are ingested as tasks via `notion.row_filter`.
-- Next action ordering sorts by: `is_next` first, then non-blocked active tasks by `priority_rank`, `sort_order`, `dueDate` (nulls last), then todo tasks with the same ordering.
+- `/departman/[id]` and `/aktivite` are dead links until Phase 6; Annunciator tiles temporarily link to each department's Google Drive folder, and the Event Feed temporarily omits the "Tümünü gör" link.
+- `bumin_last_visit` cookie marks feed events with a black dot if they were ingested after the user's previous visit.
+- Sync stale threshold is 30 minutes. If worker or Notion source hasn't had a successful sync in 30 minutes, the caution banner is rendered at the top of the dashboard.
+- The web app never writes to SQLite; it only reads via `src/server/queries/dashboard.ts` and `src/server/queries/health.ts`.

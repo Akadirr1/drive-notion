@@ -20,7 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="tr" className={atkinson.variable}>
+    <html lang="tr" className={atkinson.variable} suppressHydrationWarning>
       <body>{children}</body>
     </html>
   );
