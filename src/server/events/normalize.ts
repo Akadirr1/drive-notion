@@ -17,8 +17,62 @@ export interface RawEventRow {
  * Returns null if the raw event does not correspond to a semantic event.
  */
 export function normalizeRawEvent(raw: RawEventRow): NormalizedEvent | null {
+  if (raw.source === "drive") {
+    let payload: {
+      after?: {
+        name?: string;
+        departmentId?: string | null;
+        docType?: string | null;
+        webViewLink?: string | null;
+      };
+    };
+
+    try {
+      payload = JSON.parse(raw.payload);
+    } catch {
+      return null;
+    }
+
+    const after = payload?.after;
+    if (!after || typeof after.name !== "string") {
+      return null;
+    }
+
+    switch (raw.kind) {
+      case "doc:created":
+        return {
+          type: "DOC_CREATED",
+          departmentId: after.departmentId ?? null,
+          subjectTitle: after.name,
+          detail: null,
+          docType: after.docType ?? null,
+          source: "drive",
+          sourceId: raw.externalId,
+          url: after.webViewLink ?? null,
+          occurredAt: raw.occurredAt,
+          rawEventId: raw.id,
+        };
+
+      case "doc:updated":
+        return {
+          type: "DOC_UPDATED",
+          departmentId: after.departmentId ?? null,
+          subjectTitle: after.name,
+          detail: null,
+          docType: after.docType ?? null,
+          source: "drive",
+          sourceId: raw.externalId,
+          url: after.webViewLink ?? null,
+          occurredAt: raw.occurredAt,
+          rawEventId: raw.id,
+        };
+
+      default:
+        return null;
+    }
+  }
+
   if (raw.source !== "notion") {
-    // Drive events are handled in Phase 4
     return null;
   }
 

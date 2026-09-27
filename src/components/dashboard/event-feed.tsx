@@ -6,7 +6,7 @@ import {
   OctagonAlert,
   Play,
 } from 'lucide-react';
-import { formatDateTimeTurkish, relativeTime } from '@/lib/format';
+import { formatDateTimeTurkish, relativeTime, stripExtension } from '@/lib/format';
 
 export interface FeedEvent {
   id: number;
@@ -138,9 +138,9 @@ function buildSentence(event: FeedEvent): string {
     case 'TASK_UNBLOCKED':
       return `${subjectTitle} artık tıkalı değil`;
     case 'DOC_CREATED':
-      return `Yeni belge: ${subjectTitle}`;
+      return `Yeni belge: ${stripExtension(subjectTitle)}`;
     case 'DOC_UPDATED':
-      return `${subjectTitle} güncellendi`;
+      return `${stripExtension(subjectTitle)} güncellendi`;
     default:
       return subjectTitle;
   }

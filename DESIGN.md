@@ -104,7 +104,7 @@ Icons (lucide): `check` completed, `play` started, `octagon-alert` blocked, `cir
 - Rows newer than the last visit get a small `ink` dot at the start. Store the last visit time in a cookie, updated on each dashboard view.
 - No animations in v1. Respect `prefers-reduced-motion` anyway.
 - Task titles in the next-action panel are clamped to 3 lines on mobile (<768px) and 2 lines on desktop (`line-clamp-3 md:line-clamp-2`), with the full title in the `title` attribute. Event feed sentences are clamped to two lines. Never truncate titles in the data layer.
-- Stale data: if `/api/health` reports `ok: false`, show a full-width `caution` banner at the very top: "Veriler N dk önce güncellendi. Senkron çalışmıyor olabilir." The user must never mistake old data for current data.
+- Stale data: if `/api/health` reports `ok: false`, show a full-width `caution` banner at the very top. One sentence per failing implemented source, joined with a space (e.g. "Drive henüz hiç senkron olmadı." or "Notion senkronu çalışmıyor. Son başarı: 2 sa önce."). The sync status shows the oldest non-null lastSuccessAt among implemented sources; a never-synced source is reported only by the banner. The user must never mistake old data for current data.
 
 ## Copy
 
@@ -129,6 +129,13 @@ Department status words:
 - `not_started` → (quiet, in summary line)
 - `done` → (quiet, in summary line)
 - `idle` → (quiet, counted with not_started as "başlamadı" in summary line)
+
+Sync status & stale banner:
+- Sync status: "Son senkron {relativeTimeAgo}" (oldest non-null `lastSuccessAt` across implemented sources).
+- Stale banner: one sentence per failing implemented source, joined with a space:
+  - Failing with prior success: `"{Source} senkronu çalışmıyor. Son başarı: {relativeTimeAgo}."` (e.g. `"Notion senkronu çalışmıyor. Son başarı: 2 sa önce."`)
+  - Never synced: `"{Source} henüz hiç senkron olmadı."` (e.g. `"Drive henüz hiç senkron olmadı."`)
+  - No combined `"Notion ve Drive"` forms.
 
 Relative time: "az önce", "12 dk", "3 sa", "dün", "3 gün". Full date in the `title` attribute.
 

@@ -3,8 +3,11 @@ import {
   formatDateTimeTurkish,
   formatDateTurkish,
   formatDeadline,
+  formatStaleMessage,
+  getOldestLastSuccessAt,
   relativeTime,
   relativeTimeAgo,
+  stripExtension,
 } from '@/lib/format';
 
 describe('relativeTime', () => {
@@ -109,4 +112,201 @@ describe('formatDateTimeTurkish', () => {
     expect(formatDateTimeTurkish(iso, 'UTC', baseNow)).toBe('27 Eylül 11:32');
   });
 });
+
+describe('stripExtension', () => {
+  it('strips extension from filenames', () => {
+    expect(stripExtension('WP-01_Report.pdf')).toBe('WP-01_Report');
+    expect(stripExtension('Flight_Test_v1.2.docx')).toBe('Flight_Test_v1.2');
+    expect(stripExtension('archive.tar.gz')).toBe('archive.tar');
+  });
+
+  it('leaves files without extension unchanged', () => {
+    expect(stripExtension('Adsız doküman')).toBe('Adsız doküman');
+    expect(stripExtension('')).toBe('');
+    expect(stripExtension('.hidden')).toBe('.hidden');
+  });
+});
+
+describe('getOldestLastSuccessAt', () => {
+  it('returns the oldest timestamp among implemented sources', () => {
+    const sources = {
+      notion: {
+        lastSuccessAt: '2026-09-28T10:00:00.000Z',
+        lastError: null,
+        lastErrorAt: null,
+        seeded: true,
+        implemented: true,
+      },
+      drive: {
+        lastSuccessAt: '2026-09-28T11:30:00.000Z',
+        lastError: null,
+        lastErrorAt: null,
+        seeded: true,
+        implemented: true,
+      },
+    };
+
+    expect(getOldestLastSuccessAt(sources)).toBe('2026-09-28T10:00:00.000Z');
+  });
+
+  it('skips null lastSuccessAt and returns the non-null one', () => {
+    const sources = {
+      notion: {
+        lastSuccessAt: '2026-09-28T10:00:00.000Z',
+        lastError: null,
+        lastErrorAt: null,
+        seeded: true,
+        implemented: true,
+      },
+      drive: {
+        lastSuccessAt: null,
+        lastError: null,
+        lastErrorAt: null,
+        seeded: false,
+        implemented: true,
+      },
+    };
+
+    expect(getOldestLastSuccessAt(sources)).toBe('2026-09-28T10:00:00.000Z');
+  });
+
+  it('returns null if all implemented sources are null', () => {
+    const sources = {
+      notion: {
+        lastSuccessAt: null,
+        lastError: null,
+        lastErrorAt: null,
+        seeded: false,
+        implemented: true,
+      },
+      drive: {
+        lastSuccessAt: null,
+        lastError: null,
+        lastErrorAt: null,
+        seeded: false,
+        implemented: true,
+      },
+    };
+
+    expect(getOldestLastSuccessAt(sources)).toBeNull();
+  });
+});
+
+describe('formatStaleMessage', () => {
+  const baseNow = new Date('2026-09-28T12:00:00.000Z');
+
+  it('formats single failing source with prior success', () => {
+    const sources = {
+      notion: {
+        lastSuccessAt: '2026-09-28T10:00:00.000Z', // 2 hours ago
+        lastError: null,
+        lastErrorAt: null,
+        seeded: true,
+        implemented: true,
+      },
+      drive: {
+        lastSuccessAt: '2026-09-28T11:55:00.000Z', // 5 min ago (healthy)
+        lastError: null,
+        lastErrorAt: null,
+        seeded: true,
+        implemented: true,
+      },
+    };
+
+    expect(formatStaleMessage(sources, baseNow)).toBe(
+      'Notion senkronu çalışmıyor. Son başarı: 2 sa önce.'
+    );
+  });
+
+  it('formats single failing source that never synced', () => {
+    const sources = {
+      notion: {
+        lastSuccessAt: '2026-09-28T11:50:00.000Z', // healthy
+        lastError: null,
+        lastErrorAt: null,
+        seeded: true,
+        implemented: true,
+      },
+      drive: {
+        lastSuccessAt: null, // never synced
+        lastError: null,
+        lastErrorAt: null,
+        seeded: false,
+        implemented: true,
+      },
+    };
+
+    expect(formatStaleMessage(sources, baseNow)).toBe(
+      'Drive henüz hiç senkron olmadı.'
+    );
+  });
+
+  it('formats multiple failing sources joined with a space (no combined forms)', () => {
+    const sources = {
+      notion: {
+        lastSuccessAt: '2026-09-28T10:00:00.000Z', // 2 hours ago
+        lastError: null,
+        lastErrorAt: null,
+        seeded: true,
+        implemented: true,
+      },
+      drive: {
+        lastSuccessAt: null, // never synced
+        lastError: null,
+        lastErrorAt: null,
+        seeded: false,
+        implemented: true,
+      },
+    };
+
+    expect(formatStaleMessage(sources, baseNow)).toBe(
+      'Notion senkronu çalışmıyor. Son başarı: 2 sa önce. Drive henüz hiç senkron olmadı.'
+    );
+  });
+
+  it('formats both never synced sources joined with a space', () => {
+    const sources = {
+      notion: {
+        lastSuccessAt: null,
+        lastError: null,
+        lastErrorAt: null,
+        seeded: false,
+        implemented: true,
+      },
+      drive: {
+        lastSuccessAt: null,
+        lastError: null,
+        lastErrorAt: null,
+        seeded: false,
+        implemented: true,
+      },
+    };
+
+    expect(formatStaleMessage(sources, baseNow)).toBe(
+      'Notion henüz hiç senkron olmadı. Drive henüz hiç senkron olmadı.'
+    );
+  });
+
+  it('returns empty string when all implemented sources are healthy', () => {
+    const sources = {
+      notion: {
+        lastSuccessAt: '2026-09-28T11:55:00.000Z',
+        lastError: null,
+        lastErrorAt: null,
+        seeded: true,
+        implemented: true,
+      },
+      drive: {
+        lastSuccessAt: '2026-09-28T11:50:00.000Z',
+        lastError: null,
+        lastErrorAt: null,
+        seeded: true,
+        implemented: true,
+      },
+    };
+
+    expect(formatStaleMessage(sources, baseNow)).toBe('');
+  });
+});
+
 

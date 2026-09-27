@@ -4,7 +4,7 @@ import type { drizzle } from "drizzle-orm/better-sqlite3";
 /** Explicit list of implemented sync sources.
  *  Phase 1: empty. Phase 2 adds 'notion'. Phase 4 adds 'drive'.
  *  This is a code constant, not inferred from data. */
-export const IMPLEMENTED_SOURCES: ReadonlyArray<"notion" | "drive"> = ["notion"];
+export const IMPLEMENTED_SOURCES: ReadonlyArray<"notion" | "drive"> = ["notion", "drive"];
 
 export interface SourceHealth {
   lastSuccessAt: string | null;
@@ -29,7 +29,7 @@ export interface HealthPayload {
 /** Row type inferred from the Drizzle schema. */
 export type SyncStateRow = typeof syncState.$inferSelect;
 
-const STALE_THRESHOLD_MS = 30 * 60 * 1000;
+export const STALE_THRESHOLD_MS = 30 * 60 * 1000;
 
 function isStale(isoTimestamp: string | null, now: Date, maxAgeMs = STALE_THRESHOLD_MS): boolean {
   if (!isoTimestamp) return true;

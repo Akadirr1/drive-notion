@@ -48,9 +48,24 @@ const notionSchema = z.object({
   status_groups: statusGroupsSchema,
 });
 
-const driveSchema = z.object({
-  root_folder_id: z.string().min(1, "drive.root_folder_id is required"),
-});
+const driveSchema = z
+  .object({
+    root_folder_id: z.string().min(1, "drive.root_folder_id is required"),
+    silent_mime_prefixes: z.array(z.string()).default([]),
+    silent_name_patterns: z.array(z.string()).default([]),
+  })
+  .superRefine((val, ctx) => {
+    for (const pattern of val.silent_name_patterns) {
+      try {
+        new RegExp(pattern, "i");
+      } catch (err) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Invalid regular expression for silent_name_patterns: "${pattern}" (${err instanceof Error ? err.message : String(err)})`,
+        });
+      }
+    }
+  });
 
 const departmentSchema = z.object({
   id: z.string(),

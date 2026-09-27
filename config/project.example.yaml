@@ -33,6 +33,11 @@ notion:
 
 drive:
   root_folder_id: "DRIVE_ROOT_FOLDER_ID_HERE"
+  silent_mime_prefixes:
+    - "image/"
+    - "video/"
+  silent_name_patterns:
+    - '\.ulg$'
 
 departments:
   - id: "00"
