@@ -5,8 +5,10 @@ import fs from "node:fs";
 import path from "node:path";
 import * as schema from "./schema";
 
-let writerDb: ReturnType<typeof drizzle> | null = null;
-let readerDb: ReturnType<typeof drizzle> | null = null;
+export type WriterDb = ReturnType<typeof drizzle<typeof schema>>;
+
+let writerDb: WriterDb | null = null;
+let readerDb: WriterDb | null = null;
 
 function getDbPath(): string {
   return process.env.DATABASE_PATH || "./data/app.db";
@@ -17,7 +19,7 @@ function getDbPath(): string {
  * Opens the database in read-write mode, sets WAL and busy timeout,
  * and runs migrations. Caches the instance.
  */
-export function getWriterDb(): ReturnType<typeof drizzle> {
+export function getWriterDb(): WriterDb {
   if (writerDb) {
     return writerDb;
   }
@@ -48,7 +50,7 @@ export function getWriterDb(): ReturnType<typeof drizzle> {
  * Does NOT cache null if the file does not exist, so a newly created DB
  * is picked up on subsequent calls without restarting.
  */
-export function getReaderDb(): ReturnType<typeof drizzle> | null {
+export function getReaderDb(): WriterDb | null {
   if (readerDb) {
     return readerDb;
   }

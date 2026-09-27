@@ -4,7 +4,7 @@ import type { drizzle } from "drizzle-orm/better-sqlite3";
 /** Explicit list of implemented sync sources.
  *  Phase 1: empty. Phase 2 adds 'notion'. Phase 4 adds 'drive'.
  *  This is a code constant, not inferred from data. */
-export const IMPLEMENTED_SOURCES: ReadonlyArray<"notion" | "drive"> = [];
+export const IMPLEMENTED_SOURCES: ReadonlyArray<"notion" | "drive"> = ["notion"];
 
 export interface SourceHealth {
   lastSuccessAt: string | null;

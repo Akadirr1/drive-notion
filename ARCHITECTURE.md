@@ -139,7 +139,7 @@ TZ=Europe/Istanbul
 ## Database schema
 
 `sync_state`
-- `source` PK (`notion` | `drive` | `worker`), `cursor` (ISO time), `seeded` (bool), `last_success_at`, `last_error`, `last_error_at`
+- `source` PK (`notion` | `drive` | `worker`), `cursor` (ISO time, used by Drive; Notion does not use a cursor), `seeded` (bool), `last_success_at`, `last_error`, `last_error_at`
   The `worker` row stores the heartbeat timestamp in `last_success_at`; other fields are unused for it.
 
 `notion_tasks` (snapshot)
@@ -171,12 +171,13 @@ Log one JSON line per step with duration, counts and errors.
 
 ## Notion sync
 
-- Query the tasks data source with a `last_edited_time` filter from `cursor` minus 2 minutes (Notion rounds edit times to the minute). Paginate. Check Context7 for the current Notion API version and data source endpoints.
-- Map properties through `config.notion.properties`. Resolve `status_group` from config or the status property's built-in groups.
-- Compare each page with its snapshot. Only an actual field change produces a raw event, so the overlap window cannot duplicate events.
-- First full sync is a seed: fill snapshots, set `seeded`, emit no semantic events. Otherwise the first run would flood the feed.
-- Archived pages: set `archived`, no event.
-- Advance `cursor` to the max `last_edited_time` seen.
+- Every sync does a full fetch (no cursor filter). The database is small (a few hundred pages); the query endpoint does not return trashed pages, so full fetch is needed to detect deletions.
+- At the start of each sync, retrieve the data source schema with `dataSources.retrieve()`. Validate that every property named in `config.notion.properties` exists in the schema with the expected type. Fail with a readable error if not.
+- Status groups are always derived from the status property schema by position: first group → `todo`, second → `active`, third → `done`. If `config.notion.status_groups` is defined, it overrides only the options it lists; a status value it does not list falls back to its schema-derived group with a warning, never silently to "todo".
+- Map properties through `config.notion.properties`. Compare each page with its snapshot. Only an actual field change produces a raw event.
+- Raw event kinds encode the new value (e.g. `status:active`, `blocked:true`) so the unique constraint cannot swallow a second change within the same minute.
+- First full sync is a seed: fill snapshots, set `seeded`, emit no semantic events.
+- After a complete, successful fetch, mark snapshots whose `page_id` was not returned as `archived = 1` (no event). Never mark anything archived after a partial or failed fetch.
 
 ## Drive sync
 

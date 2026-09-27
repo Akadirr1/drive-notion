@@ -24,7 +24,7 @@ describe("computeHealth", () => {
     new Date(now.getTime() - mins * 60 * 1000).toISOString();
 
   it("1. No DB (empty rows): ok: false, both sources implemented: false, worker.lastLoopAt: null", () => {
-    const result = computeHealth([], now);
+    const result = computeHealth([], now, []);
     expect(result.ok).toBe(false);
     expect(result.sources.notion.implemented).toBe(false);
     expect(result.sources.drive.implemented).toBe(false);
@@ -143,7 +143,18 @@ describe("computeHealth", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("verifies IMPLEMENTED_SOURCES is empty in Phase 1", () => {
-    expect(IMPLEMENTED_SOURCES).toEqual([]);
+  it("verifies IMPLEMENTED_SOURCES contains notion in Phase 2", () => {
+    expect(IMPLEMENTED_SOURCES).toEqual(["notion"]);
+  });
+
+  it("notion source without recent success makes ok = false when using default IMPLEMENTED_SOURCES", () => {
+    const rows: SyncStateRow[] = [
+      makeRow({ source: "notion", lastSuccessAt: null }),
+      makeRow({ source: "drive", lastSuccessAt: null }),
+      makeRow({ source: "worker", lastSuccessAt: minutesAgo(2) }),
+    ];
+    const result = computeHealth(rows, now);
+    expect(result.ok).toBe(false);
+    expect(result.sources.notion.implemented).toBe(true);
   });
 });
