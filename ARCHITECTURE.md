@@ -139,10 +139,11 @@ TZ=Europe/Istanbul
 ## Database schema
 
 `sync_state`
-- `source` PK (`notion` | `drive`), `cursor` (ISO time), `seeded` (bool), `last_success_at`, `last_error`, `last_error_at`
+- `source` PK (`notion` | `drive` | `worker`), `cursor` (ISO time), `seeded` (bool), `last_success_at`, `last_error`, `last_error_at`
+  The `worker` row stores the heartbeat timestamp in `last_success_at`; other fields are unused for it.
 
 `notion_tasks` (snapshot)
-- `page_id` PK, `title`, `status`, `status_group` (`todo` | `active` | `done`), `department_id`, `milestone_id`, `due_date`, `blocked` (bool), `blocker_note`, `is_next` (bool), `url`, `archived` (bool), `last_edited_time`
+- `page_id` PK, `title`, `status`, `status_group` (`todo` | `active` | `done`), `department_id` (nullable), `milestone_id`, `due_date`, `blocked` (bool), `blocker_note`, `is_next` (bool), `url`, `archived` (bool), `last_edited_time`
 
 `drive_files` (snapshot, folders included)
 - `file_id` PK, `name`, `mime_type`, `is_folder`, `parent_id`, `department_id`, `doc_type`, `created_time`, `modified_time`, `web_view_link`, `trashed` (bool)
@@ -226,7 +227,12 @@ Progress:
 - `/` dashboard: deadline strip, next action with counts, annunciator panel, last 48 hours (max 5 rows), sync status.
 - `/aktivite`: all events grouped by day, `?departman=` filter.
 - `/departman/[id]`: blocked tasks, active tasks, recent documents, events. Rows link out to Notion or Drive.
-- `/api/health`: `{ notion: { lastSuccessAt, lastError }, drive: {...}, ok }`. Used by the Coolify healthcheck and the UI sync indicator. `ok` is false if any source has no success in 30 minutes.
+- `/api/health`: sync and worker status. Always returns HTTP 200; the `ok` field carries the status.
+  Response: `{ ok, sources: { notion: SourceHealth, drive: SourceHealth }, worker: { lastLoopAt }, checkedAt }`.
+  `SourceHealth`: `{ lastSuccessAt, lastError, lastErrorAt, seeded, implemented }`.
+  `implemented` is set by a code constant (`IMPLEMENTED_SOURCES` in `src/server/queries/health.ts`), not inferred from data.
+  `ok` is `false` if: the DB does not exist, any implemented source has no success within 30 minutes, or the worker heartbeat is stale.
+  The container healthcheck only needs HTTP 200 (web process alive); the UI reads "ok".
 
 ## Deployment
 

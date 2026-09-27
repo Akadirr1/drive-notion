@@ -1,23 +1,20 @@
 # Current state
 
-Phase 0 (Scaffold) is complete. The app skeleton runs, all quality-gate checks pass, and the config loader is tested.
+Phase 1 (Database and worker skeleton) is complete. The SQLite schema, Drizzle migrations, lazy DB clients (read-only for web, read-write for worker), worker sync loop with heartbeat, `/api/health` endpoint, and health unit tests are implemented and verified. All quality-gate checks pass.
 
 ## Completed
 
-- Next.js 16.3.6 scaffold with TypeScript strict, Tailwind CSS v4, shadcn/ui.
-- Drizzle ORM, Vitest, ESLint installed and configured.
-- `better-sqlite3` native addon verified (`pnpm.onlyBuiltDependencies`).
-- Design tokens from DESIGN.md wired into Tailwind v4 `@theme inline`; Tailwind generates `bg-ground`, `text-ink`, `border-rule`, etc.
-- shadcn semantic variables (`background`, `foreground`, `card`, `border`, `input`, `muted-foreground`, `ring`, `radius`) mapped to DESIGN.md tokens.
-- Dark mode via `prefers-color-scheme`, not `.dark` class.
-- Atkinson Hyperlegible Next font loaded via next/font/google.
-- `config/project.example.yaml` with placeholder values.
-- `src/server/config.ts`: zod schema + loadConfig(), validates against project.yaml.
-- Three unit tests for config loading: example passes; missing field and wrong type fail with readable messages.
-- `.env.example` with all env var names.
-- Six package.json scripts (dev, build, start, typecheck, lint, test). `engines.node >= 24`.
-- shadcn Button installed and verified to render with DESIGN.md token colors.
-- Single page: "Pano henüz hazır değil" — no fake panels.
+- Full SQLite schema defined in `src/server/db/schema.ts` for all five tables (`sync_state`, `notion_tasks`, `drive_files`, `raw_events`, `project_events`) with nullable `notion_tasks.department_id` and composite unique constraint on `raw_events`.
+- Drizzle migration generated and tracked in git under `src/server/db/migrations/` along with `meta/_journal.json`.
+- Database clients in `src/server/db/client.ts`: `getWriterDb()` (read-write, WAL, busy timeout, runs migrations from repo root) and `getReaderDb()` (read-only, busy timeout, returns null if DB file does not exist without caching null). No DB opened at module top level.
+- Worker entry point in `src/worker/index.ts`: validates config on start, seeds initial `sync_state` rows (`notion`, `drive`, `worker`), heartbeats via `worker` row in `sync_state`, and loops with JSON logging.
+- Added `"worker": "tsx src/worker/index.ts"` to `package.json` scripts.
+- Health query module in `src/server/queries/health.ts` with pure `computeHealth` and DB-backed `getHealth`, using explicit `IMPLEMENTED_SOURCES` code constant (empty in Phase 1).
+- Route handler in `src/app/api/health/route.ts`: always responds with HTTP 200, carrying status in `ok` field so container healthchecks stay healthy while allowing UI to detect stale data.
+- Unit test suite in `tests/health.test.ts` covering all 10 health computation scenarios and verifying empty `IMPLEMENTED_SOURCES`. Total 14 unit tests pass.
+- Integration smoke tests verified: dev server returns `ok: false` with HTTP 200 when DB is missing; worker creates DB and enables WAL; dev server picks up DB without restart and returns `ok: true`.
+- Verified `pnpm build` succeeds without a DB file on disk.
+- Updated `ARCHITECTURE.md` documentation for `sync_state` worker row, nullable `notion_tasks.department_id`, and `/api/health` payload behavior.
 
 ## In progress
 
@@ -29,7 +26,7 @@ Phase 0 (Scaffold) is complete. The app skeleton runs, all quality-gate checks p
 
 ## Next recommended step
 
-Phase 1: Database and worker skeleton — schema, migrations, sync loop with sync_state, /api/health, worker script.
+Phase 2: Notion pipeline — client, collector, seed, snapshot diff, normalizer for task events, fixture tests, `smoke-notion.ts`.
 
 ## Important context
 
@@ -37,4 +34,3 @@ Phase 1: Database and worker skeleton — schema, migrations, sync loop with syn
 - Before Phase 2: connect the Notion integration to the tasks database with read-content capability only.
 - Before Phase 4: share the BUMIN Drive root folder with the Google service account email as Viewer.
 - Phase 5: better-sqlite3 may compile from source; the Dockerfile builder stage needs python3, make and g++.
-
