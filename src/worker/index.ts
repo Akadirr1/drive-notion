@@ -3,6 +3,7 @@ import { getWriterDb } from "@/server/db/client";
 import { syncState } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
 import { syncNotion } from "@/server/integrations/notion/collector";
+import { syncDrive } from "@/server/integrations/drive/collector";
 import { normalizePending } from "@/server/events/process";
 
 async function main() {
@@ -58,6 +59,18 @@ async function main() {
           event: "loop_step",
           step: "sync_notion",
           durationMs: Date.now() - notionStart,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+
+      // Drive sync
+      const driveStart = Date.now();
+      await syncDrive(db, config);
+      console.log(
+        JSON.stringify({
+          event: "loop_step",
+          step: "sync_drive",
+          durationMs: Date.now() - driveStart,
           timestamp: new Date().toISOString(),
         }),
       );

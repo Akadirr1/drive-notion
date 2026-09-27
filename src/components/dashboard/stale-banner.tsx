@@ -1,16 +1,16 @@
-import { relativeTimeAgo } from '@/lib/format';
+import { formatStaleMessage } from '@/lib/format';
+import type { HealthPayload } from '@/server/queries/health';
 
 interface StaleBannerProps {
   ok: boolean;
-  lastSuccessAt: string | null;
+  sources: HealthPayload['sources'];
 }
 
-export function StaleBanner({ ok, lastSuccessAt }: StaleBannerProps) {
+export function StaleBanner({ ok, sources }: StaleBannerProps) {
   if (ok) return null;
 
-  const message = !lastSuccessAt
-    ? 'Veriler henüz hiç güncellenmedi.'
-    : `Veriler ${relativeTimeAgo(lastSuccessAt)} güncellendi. Senkron çalışmıyor olabilir.`;
+  const message = formatStaleMessage(sources);
+  if (!message) return null;
 
   return (
     <div

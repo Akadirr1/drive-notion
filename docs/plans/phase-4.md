@@ -2,7 +2,7 @@
 
 > **Scope:** Drive client with `@googleapis/drive`, service account auth, full-tree level-by-level crawl, folder mapping and department resolution, `mapFile` / `diffFile` / coalescing pure functions, pure helpers for UI string formatting, and comprehensive offline integration tests.
 >
-> **Prerequisite:** Phase 3 is complete. The owner has shared the project root folder with the service account and set `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` in `.env`. 
+> **Prerequisite:** Phase 3 is complete. The owner has shared the project root folder with the service account and set `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` in `.env` (service account is needed only for the live checks; all offline steps and tests run without it). 
 
 ---
 
@@ -17,11 +17,11 @@ ARCHITECTURE.md § Known risks: _"use the Context7 MCP for current docs of Next.
 | Fact | Detail |
 |---|---|
 | **Current Package Version** | `@googleapis/drive@26.0.1` |
-| **Auth** | Exported `auth.GoogleAuth` can parse credentials directly: `new auth.GoogleAuth({ credentials: JSON.parse(Buffer.from(envVar, 'base64').toString()), scopes: ['https://www.googleapis.com/auth/drive.readonly'] })` |
+| **Auth & Client** | Package exports `drive` and `auth` (it does **not** export `google`). Build client: `drive({ version: 'v3', auth, timeout: 30_000 })` where `auth = new auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/drive.readonly'] })`. |
 | **List Query** | `q: "'<id>' in parents and trashed = false"` |
 | **List Parameters** | `pageSize: 1000`, `supportsAllDrives: true`, `includeItemsFromAllDrives: true`, `fields: 'nextPageToken, files(id, name, mimeType, parents, createdTime, modifiedTime, webViewLink)'` |
-| **Timeout Configuration** | `google.options({ timeout: 30000 })` sets a global 30s timeout, or it can be passed per-request. |
-| **Retry Configuration** | Built-in via `googleapis-common`/`gaxios` `retryConfig` for 429 and 5xx errors; active by default in the library's `auth` client. No custom retry loop should be written. |
+| **Timeout Configuration** | `timeout: 30_000` passed directly to `drive({ ... })`. |
+| **Retry Configuration** | Built-in via `googleapis-common`/`gaxios` (`retry: true` by default; retries GET requests 3 times on 429/5xx). Add no custom retry code. |
 
 ### Action for implementer
 
@@ -29,6 +29,7 @@ Pin the dependency in `package.json`:
 ```json
 "@googleapis/drive": "26.0.1"
 ```
+After installing, confirm exports and type definitions in `node_modules/@googleapis/drive/build/index.d.ts` before writing `client.ts`.
 
 ---
 
@@ -36,16 +37,17 @@ Pin the dependency in `package.json`:
 
 Phase 4 integrates Google Drive. Instead of a `modifiedTime` cursor, the sync performs a **full-tree, level-by-level crawl** starting from `drive.root_folder_id`. This reliably catches files moved between folders and deletions without webhooks. 
 
+- **Crawl first, write after**: Collect the whole tree into memory via BFS. Only after the crawl completes run `mapFile`/`diffFile` and write snapshots, raw events, and trashing in a transaction. A crawl that fails writes nothing to the database except `sync_state.last_error`.
 - **Seed**: The first run creates snapshots but emits zero events.
 - **Incremental Crawl**: Level-by-level BFS. Because it starts from the root, **all parents are known**; there is no need to resolve missing parents.
 - **Department Resolution**: The nearest ancestor folder matching `departments[].drive_folder_id` wins. If none match, a regex on the file name (`WP-(\d{2})`) matched to `notion_value` is used. Otherwise `null`. Nested subfolders inherit their ancestor's department.
 - **Silent Files**: `drive.silent_mime_prefixes` and `drive.silent_name_patterns` evaluate to a `silent` boolean. Silent files are persisted to `drive_files` but never emit events. `silent` is calculated on the fly, not persisted as a column.
 - **Raw Events**: Kinds are `doc:created` and `doc:updated`. External ID is `file_id`. OccurredAt is `createdTime` (created) or `modifiedTime` (updated). 
-- **Diff Logic**: Only changes in `modifiedTime` trigger `doc:updated`. Folders **never** emit events. A file restored from the trash (`trashed` 1 → 0) emits **no** event.
+- **Diff Logic**: Changes in `name` OR `modifiedTime` trigger `doc:updated` (`before.name !== after.name || before.modifiedTime !== after.modifiedTime`). Folders **never** emit events. A file restored from the trash (`trashed` 1 → 0) emits **no** event.
 - **Trashing**: Files missing from a **complete, successful, non-seed** crawl are marked `trashed = 1`. 
-- **Coalescing**: If a `DOC_CREATED` or `DOC_UPDATED` event already exists for the same `file_id` within the last 30 minutes, `process.ts` updates that event's `occurred_at` and `raw_event_id` instead of inserting a new row.
-- **Errors & Auth**: Invalid or missing `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` (not set, not base64, not valid JSON) writes to `sync_state.last_error` with a readable message, and the loop continues safely.
-- **Thin wrappers**: `client.ts` exposes thin wrappers (like `listChildren(folderId, pageToken)`) with the 30s timeout and library retries. The collector and smoke script only use these. Tests mock `client.ts` directly.
+- **Coalescing**: If a `DOC_CREATED` or `DOC_UPDATED` event already exists for the same `file_id` within the last 30 minutes, update that event's `occurred_at`, `raw_event_id`, `subject_title`, `department_id`, `doc_type`, and `url` from the newest event instead of inserting a new row.
+- **Credentials & Errors**: A pure `parseServiceAccount(base64)` in `src/server/integrations/drive/client.ts` validates credentials. It throws a readable error naming `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` if not set, not base64, not JSON, or missing `client_email` or `private_key`. The collector does not re-check credentials; it catches whatever the client throws and writes to `sync_state.last_error`.
+- **Thin wrappers**: `client.ts` exposes thin wrappers (like `listChildren(folderId, pageToken)`) with the 30s timeout and default library retries. The collector and smoke script only use these. Tests mock `client.ts` directly.
 
 ---
 
@@ -68,11 +70,12 @@ Replace ARCHITECTURE.md § Drive sync with:
 
 - Auth with a Google service account, scope `drive.readonly`. The owner shares the BUMIN root folder with the service account email as Viewer.
 - Sync mechanism: full-tree, level-by-level crawl from `root_folder_id` (`'<id>' in parents and trashed = false`). No `modifiedTime` cursors are used.
+- Crawl first, write after: the entire tree is collected into memory before anything is written. A failed crawl writes nothing except `sync_state.last_error`.
 - Because the crawl walks top-down, every file's parent path is known immediately. Department is resolved by the nearest ancestor listed in `departments[].drive_folder_id`, falling back to `WP-xx` in the file name, else `null`.
 - First full sync is a seed: store files and folders, set `seeded`, emit no semantic events.
-- Incremental sync compares `modifiedTime` to emit `doc:updated`. Folders never emit events.
+- Incremental sync compares `name` and `modifiedTime` to emit `doc:updated`. Folders never emit events.
 - Trashing: files missing from a complete, successful crawl are marked `trashed = 1` (no event). Restores (1 -> 0) emit no event.
-- Coalescing: if the same file has a `DOC_CREATED` or `DOC_UPDATED` within the last 30 minutes, move that event's `occurred_at` forward instead of inserting a new one. Ten saves in a row appear as one line.
+- Coalescing: if the same file has a `DOC_CREATED` or `DOC_UPDATED` within the last 30 minutes, update that event's `occurred_at`, `raw_event_id`, `subject_title`, `department_id`, `doc_type`, and `url` instead of inserting a new one. Ten saves in a row appear as one line; rename within 30m of creation updates the title in place.
 - `doc_type`: from `config.doc_types` regex array. First match wins, else `other`.
 - Silent files: match `silent_mime_prefixes` or `silent_name_patterns`. They are stored in the DB but emit no raw events.
 - All timestamps are ISO 8601 UTC with "Z" (toISOString or the API's RFC 3339 strings). When a test needs an old timestamp, write an ISO string; never SQLite datetime(), which has no "Z" and is read as local time.
@@ -90,9 +93,14 @@ Replace ARCHITECTURE.md § Drive sync with:
 - Config loader: Add string array schemas for both. Add a `superRefine` loop for `silent_name_patterns` to catch bad regexes.
 
 ### 4.2. `src/server/integrations/drive/client.ts` — CREATE
-**Purpose:** Lazy singleton `Drive` client instance and thin wrappers.
+**Purpose:** Service account parsing, lazy singleton `Drive` client instance and thin wrappers.
 **Exports:**
-- `getDriveClient()`: Reads/decodes `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64`. Throws readable error if missing, not base64, or not JSON. Instantiates `google.drive({ version: 'v3', auth })`. Sets `google.options({ timeout: 30000 })`.
+- `parseServiceAccount(base64?: string): ServiceAccountCredentials`: Pure function validating `base64`. Throws descriptive error naming `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` if:
+  - Not provided / empty string
+  - Not valid base64
+  - Not valid JSON
+  - Missing `client_email` or `private_key`
+- `getDriveClient()`: Calls `parseServiceAccount(process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)`. Builds `auth = new auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/drive.readonly'] })`. Builds client `drive({ version: 'v3', auth, timeout: 30_000 })`.
 - `listChildren(folderId: string, pageToken?: string)`: Calls `files.list` with the exact query and fields. Built-in library retries handle 429s.
 
 ### 4.3. `src/server/integrations/drive/map-file.ts` — CREATE
@@ -104,24 +112,25 @@ Replace ARCHITECTURE.md § Drive sync with:
   - If `silent` is true or `after.isFolder` is true → returns `[]`.
   - If `before` is null (new file) → emits `doc:created` (occurredAt = `createdTime`).
   - If `before.trashed === 1` and `after.trashed === 0` → returns `[]` (no restore event).
-  - If `before.modifiedTime !== after.modifiedTime` → emits `doc:updated` (occurredAt = `modifiedTime`).
+  - If `before.name !== after.name || before.modifiedTime !== after.modifiedTime` → emits `doc:updated` (occurredAt = `modifiedTime`).
   - `externalId` is `after.fileId`.
 
 ### 4.4. `src/server/integrations/drive/collector.ts` — CREATE
-**Purpose:** The sync orchestrator.
+**Purpose:** The sync orchestrator with crawl-first, write-after semantics.
 **Exports:** `syncDrive(db: WriterDb, config: ProjectConfig): Promise<void>`
 **Algorithm:**
-1. Check `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64`. If invalid/missing, `last_error = ...`, update `sync_state`, return gracefully.
+1. Call `getDriveClient()`. If it throws (or any API call fails), catch, write error to `sync_state.last_error`, and return gracefully. Do not write any file rows or events.
 2. Read `sync_state`. Determine `isSeed`.
-3. Initialize queues for BFS level-by-level crawl starting with `[config.drive.root_folder_id]`.
-4. While queue has items, fetch `listChildren` for each folder (paginated).
-5. Build `parentMap` (`file.id -> folderId`), identifying folders and extracting `departmentFolderIds` from config.
-6. Skip Drive shortcuts (`mimeType === 'application/vnd.google-apps.shortcut'`).
-7. `mapFile` each item.
-8. `diffFile`.
-9. Transactionally upsert `drive_files` and insert `raw_events`.
-10. If crawl complete & not seed: mark `trashed = 1` for any file in DB not seen in this crawl. (No event).
-11. Update `sync_state` with `lastSuccessAt` (and `seeded = 1`).
+3. In-memory crawl: Initialize BFS queue starting with `[config.drive.root_folder_id]`.
+4. While queue has items, fetch `listChildren` for each folder (paginated). Collect all items into memory.
+5. If crawl encounters any error: record error in `sync_state.last_error`, write nothing else, return.
+6. Only after the crawl finishes completely:
+   - Build `parentMap` (`file.id -> folderId`), identifying folders and extracting `departmentFolderIds` from config.
+   - Filter out shortcuts (`mimeType === 'application/vnd.google-apps.shortcut'`).
+   - For all files/folders in crawl: run `mapFile` and `diffFile`.
+   - Transactionally: upsert `drive_files` snapshots and insert `raw_events`.
+   - If crawl complete & not seed: mark `trashed = 1` for any file in DB not seen in this crawl. (No event).
+   - Update `sync_state` with `lastSuccessAt` (and `seeded = 1`).
 
 ### 4.5. `src/server/events/normalize.ts` — MODIFY
 **Purpose:** Add Drive cases.
@@ -136,14 +145,14 @@ Replace ARCHITECTURE.md § Drive sync with:
   Returns true if `newRawEvent.occurredAt` is within 30 minutes (1800000 ms) of `existingEvent.occurredAt`.
 
 ### 4.7. `src/server/events/process.ts` — MODIFY
-**Purpose:** Integrate coalescing into the processor.
+**Purpose:** Integrate coalescing with attribute updates into the processor.
 **Changes:**
 Before `tx.insert(projectEvents)`, check if `type` is `DOC_CREATED` or `DOC_UPDATED`. If so, `SELECT * FROM project_events WHERE source_id = ? AND type IN ('DOC_CREATED', 'DOC_UPDATED') ORDER BY occurred_at DESC LIMIT 1`. 
-If `shouldCoalesce` returns true, `UPDATE project_events SET occurred_at = ?, raw_event_id = ?` instead of inserting a new row.
+If `shouldCoalesce` returns true, `UPDATE project_events SET occurred_at = ?, raw_event_id = ?, subject_title = ?, department_id = ?, doc_type = ?, url = ? WHERE id = ?` instead of inserting a new row.
 
 ### 4.8. `src/worker/index.ts` — MODIFY
 **Purpose:** Wire `syncDrive` into the worker loop.
-**Changes:** Call `syncDrive` after `syncNotion` and before `normalizePending`. Log `sync_drive_complete`. 
+**Changes:** Call `syncDrive` after `syncNotion` and before `normalizePending`. Log as `loop_step { step: "sync_drive", durationMs }`, like the Notion step.
 
 ### 4.9. `package.json` scripts — MODIFY
 **Changes:** Add `"smoke:drive": "tsx --env-file-if-exists=.env scripts/smoke-drive.ts"`
@@ -156,37 +165,40 @@ If `shouldCoalesce` returns true, `UPDATE project_events SET occurred_at = ?, ra
 **Exports:** 
 - `stripExtension(filename: string): string`: Removes the file extension (e.g., `"WP-01_Report.pdf"` -> `"WP-01_Report"`).
 - `formatStaleMessage(sources: HealthPayload['sources'], now: Date): string`:
-  - One failing with success: `"{Source} senkronu çalışmıyor. Son başarı: {relativeTimeAgo}"` (e.g. `Notion senkronu...`)
-  - One never synced: `"{Source} henüz hiç senkron olmadı."`
-  - Both failing with success: `"Notion ve Drive senkronu çalışmıyor. Son başarı: {relativeTimeAgo}"` (using the oldest `lastSuccessAt`).
-  - Both never synced: `"Notion ve Drive henüz hiç senkron olmadı."`
+  - One sentence per failing implemented source, joined with a space.
+  - Failing with success: `"{Source} senkronu çalışmıyor. Son başarı: {relativeTimeAgo}"` (e.g. `"Notion senkronu çalışmıyor. Son başarı: 2 sa önce."`)
+  - Never synced: `"{Source} henüz hiç senkron olmadı."` (e.g. `"Drive henüz hiç senkron olmadı."`)
+  - If both failing, combine the two sentences with a single space (e.g. `"Notion senkronu çalışmıyor. Son başarı: 2 sa önce. Drive henüz hiç senkron olmadı."`).
+  - No combined `"Notion ve Drive"` forms.
 
-### 4.12. `src/components/dashboard/event-feed.tsx` & `stale-banner.tsx` — MODIFY
+### 4.12. `src/components/dashboard/` — MODIFY
 **Changes:**
 - `event-feed.tsx`: Use `stripExtension(event.subjectTitle)` for `DOC_CREATED` and `DOC_UPDATED` display text.
-- `stale-banner.tsx`: Use `formatStaleMessage` pure helper instead of putting complex string concatenation in the React component.
-- `deadline-strip.tsx`: Sync status uses oldest `lastSuccessAt` across implemented sources.
+- `stale-banner.tsx`: Use `formatStaleMessage` pure helper.
+- `deadline-strip.tsx`: Sync status shows the oldest non-null `lastSuccessAt` among implemented sources. A never-synced source is reported only by the banner.
 
 ### 4.13. `src/server/queries/health.ts` — MODIFY
 **Changes:** `IMPLEMENTED_SOURCES: ReadonlyArray<"notion" | "drive"> = ["notion", "drive"];`
 
 ### 4.14. `tests/` — ADD/MODIFY
 - **`tests/fixtures/drive-files.ts`**: Fixtures for Drive APIs.
-- **`tests/map-file.test.ts`**: Unit tests for `mapFile` (department fallback, ancestor logic, silent eval) and `diffFile`.
+- **`tests/drive-client.test.ts`**: Unit tests for `parseServiceAccount(base64)`: not set, not base64, not JSON, missing client_email or private_key; each naming `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64`.
+- **`tests/map-file.test.ts`**: Unit tests for `mapFile` (department fallback, ancestor logic, silent eval) and `diffFile` (including name changes / renames).
 - **`tests/coalesce.test.ts`**: Pure tests for `shouldCoalesce`.
 - **`tests/format.test.ts`**: Tests for `stripExtension` and `formatStaleMessage` exact copies.
 - **`tests/normalizer.test.ts`**: Add `doc:created` and `doc:updated` fixture cases.
-- **`tests/drive-collector.test.ts`**: Offline integration testing covering 9 exact scenarios:
+- **`tests/drive-collector.test.ts`**: Offline integration testing covering exact scenarios:
   1. Seed writes no raw events.
   2. New file → DOC_CREATED with right WP.
   3. Modified file → DOC_UPDATED.
   4. Three saves within 30 minutes → one project event whose occurred_at and raw_event_id point to the last save.
   5. File missing from complete crawl → trashed = 1, no event.
   6. File moved between WP folders → department changes, no event.
-  7. Crawl fails on a later folder → nothing trashed, last_error recorded, no throw.
+  7. Crawl fails on a later folder → nothing trashed, last_error recorded, no throw, asserts no new `drive_files` rows or `raw_events` were written.
   8. Silent file (image) → stored, no event.
   9. Handoff file outside WP folders → department extracted from its WP-xx code.
-  10. Invalid credentials → last_error set, loop continues safely.
+  10. Invalid credentials → mocks client to throw credential error, last_error set, loop continues safely.
+  11. File created as "Adsız doküman" and renamed within 30 minutes → exactly one DOC_CREATED project event with the final name.
 - **`tests/health.test.ts`**: Update for new `IMPLEMENTED_SOURCES`.
 
 ### 4.15. `HANDOFF.md` — MODIFY
@@ -215,7 +227,7 @@ Run `pnpm typecheck`.
 
 ### Step 4: Pure Function Tests
 Create `tests/fixtures/drive-files.ts` (§4.14).
-Create `tests/map-file.test.ts` and `tests/coalesce.test.ts` (§4.14).
+Create `tests/drive-client.test.ts`, `tests/map-file.test.ts`, and `tests/coalesce.test.ts` (§4.14).
 Modify `tests/normalizer.test.ts` (§4.14).
 Run `pnpm test`.
 
@@ -265,7 +277,7 @@ All four must pass.
 | Invalid/missing Base64 Auth | `collector.ts` | Records in `sync_state.last_error`. Loop continues. |
 | Drive API timeout (>30s) | `@googleapis/drive` | Throws. Propagates to collector, which catches, records, and continues. |
 | Drive 429/5xx | `gaxios` built-in retry | Retries automatically with backoff. Exhaustion propagates to collector. No custom retry code. |
-| Partial fetch / Error mid-crawl | `collector.ts` | Stops crawl. Records error. **No files are marked trashed**. Loop continues. |
+| Partial fetch / Error mid-crawl | `collector.ts` | Stops crawl. Records error. **No files are marked trashed and no new rows/events written**. Loop continues. |
 
 ---
 
@@ -297,7 +309,7 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm build
 **Verify:** All four commands exit 0.
 
 #### 8.2. Drive collector integration tests pass
-**Verify:** `pnpm test -- tests/drive-collector.test.ts` passes with all 10 scenarios covering exact rows written (Seed, DOC_CREATED, DOC_UPDATED, Coalesced events, Trashed handling, Moved folders, Silent files, API failures mid-crawl, Name fallback, Auth parsing failures).
+**Verify:** `pnpm test -- tests/drive-collector.test.ts` passes with all 11 scenarios covering exact rows written (Seed, DOC_CREATED, DOC_UPDATED, Coalesced events, Trashed handling, Moved folders, Mid-crawl failure asserting no new drive_files/raw_events written, Silent files, Name fallback, Auth parsing failures, Rename within 30 min of creation updating title).
 
 #### 8.3. Format helpers pure tests pass
 **Verify:** `pnpm test -- tests/format.test.ts` passes exact Turkish copy rules for single source, missing source, and dual source failures, plus extension stripping logic.

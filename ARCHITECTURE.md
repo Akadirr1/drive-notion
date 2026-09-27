@@ -194,14 +194,18 @@ Log one JSON line per step with duration, counts and errors.
 
 ## Drive sync
 
-- Auth with a Google service account, scope `drive.readonly`. The owner shares the BUMIN root folder with the service account email as Viewer, so the account sees only project files.
-- Seed: crawl from `root_folder_id` recursively (`'<id>' in parents and trashed = false`), store files and folders, resolve each file's department by its nearest ancestor listed in `departments[].drive_folder_id`. No semantic events during seed.
-- Incremental: `files.list` with `modifiedTime > cursor minus 2 minutes`, `supportsAllDrives` and `includeItemsFromAllDrives` on. Resolve unknown parents with `files.get` and cache them. Ignore anything whose ancestor chain does not reach `root_folder_id`.
-- New file → `DOC_CREATED`. Known file with a newer `modifiedTime` → `DOC_UPDATED`.
-- Coalescing: if the same file already has a `DOC_CREATED` or `DOC_UPDATED` within the last 30 minutes, move that event's `occurred_at` forward instead of inserting a new one. Ten saves in a row must show up as one line.
-- Folders never produce events. Trashed files: set `trashed`, no event.
-- `doc_type` from `config.doc_types`: case-insensitive regular expressions tested against the file name; first match wins in config order, else `other`.
-- Phase 4 must start by running `scripts/smoke-drive.ts` to prove that files inside the shared folder are listed for the service account. Fallback if not: an OAuth refresh token for the owner's account with the same read-only scope.
+- Auth with a Google service account, scope `drive.readonly`. The owner shares the BUMIN root folder with the service account email as Viewer.
+- Sync mechanism: full-tree, level-by-level crawl from `root_folder_id` (`'<id>' in parents and trashed = false`). No `modifiedTime` cursors are used.
+- Crawl first, write after: the entire tree is collected into memory before anything is written. A failed crawl writes nothing except `sync_state.last_error`.
+- Because the crawl walks top-down, every file's parent path is known immediately. Department is resolved by the nearest ancestor listed in `departments[].drive_folder_id`, falling back to `WP-xx` in the file name, else `null`.
+- First full sync is a seed: store files and folders, set `seeded`, emit no semantic events.
+- Incremental sync compares `name` and `modifiedTime` to emit `doc:updated`. Folders never emit events.
+- Trashing: files missing from a complete, successful crawl are marked `trashed = 1` (no event). Restores (1 -> 0) emit no event.
+- Coalescing: if the same file has a `DOC_CREATED` or `DOC_UPDATED` within the last 30 minutes, update that event's `occurred_at`, `raw_event_id`, `subject_title`, `department_id`, `doc_type`, and `url` instead of inserting a new one. Ten saves in a row appear as one line; rename within 30m of creation updates the title in place.
+- `doc_type`: from `config.doc_types` regex array. First match wins, else `other`.
+- Silent files: match `silent_mime_prefixes` or `silent_name_patterns`. They are stored in the DB but emit no raw events.
+- All timestamps are ISO 8601 UTC with "Z" (toISOString or the API's RFC 3339 strings). When a test needs an old timestamp, write an ISO string; never SQLite datetime(), which has no "Z" and is read as local time.
+- The Drive client uses `@googleapis/drive` with its built-in 429/5xx retries and a 30-second timeout.
 
 ## Normalizer
 

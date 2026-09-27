@@ -13,10 +13,12 @@
     "lint": "eslint .",
     "test": "vitest run",
     "worker": "tsx --env-file-if-exists=.env src/worker/index.ts",
-    "smoke:notion": "tsx --env-file-if-exists=.env scripts/smoke-notion.ts"
+    "smoke:notion": "tsx --env-file-if-exists=.env scripts/smoke-notion.ts",
+    "smoke:drive": "tsx --env-file-if-exists=.env scripts/smoke-drive.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
+    "@googleapis/drive": "26.0.1",
     "@notionhq/client": "5.26.0",
     "better-sqlite3": "13.0.3",
     "class-variance-authority": "^0.7.1",

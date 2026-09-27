@@ -1,3 +1,7 @@
+import type { HealthPayload } from '@/server/queries/health';
+
+const STALE_THRESHOLD_MS = 30 * 60 * 1000;
+
 const TURKISH_MONTHS = [
   'Ocak',
   'Şubat',
@@ -12,6 +16,80 @@ const TURKISH_MONTHS = [
   'Kasım',
   'Aralık',
 ];
+
+/**
+ * Removes the file extension from a file name.
+ * e.g. "WP-01_Report.pdf" -> "WP-01_Report", "Notes.docx" -> "Notes", "Adsız doküman" -> "Adsız doküman"
+ */
+export function stripExtension(filename: string): string {
+  const lastDot = filename.lastIndexOf('.');
+  if (lastDot <= 0) {
+    return filename;
+  }
+  return filename.substring(0, lastDot);
+}
+
+/**
+ * Returns the oldest non-null lastSuccessAt among implemented sources.
+ * Returns null if none of the implemented sources have succeeded yet.
+ */
+export function getOldestLastSuccessAt(
+  sources: HealthPayload['sources']
+): string | null {
+  let oldest: string | null = null;
+  let oldestTime = Infinity;
+
+  const entries: Array<keyof HealthPayload['sources']> = ['notion', 'drive'];
+  for (const key of entries) {
+    const s = sources[key];
+    if (s && s.implemented && s.lastSuccessAt) {
+      const time = new Date(s.lastSuccessAt).getTime();
+      if (!Number.isNaN(time) && time < oldestTime) {
+        oldestTime = time;
+        oldest = s.lastSuccessAt;
+      }
+    }
+  }
+
+  return oldest;
+}
+
+/**
+ * Formats stale warning message for the stale banner.
+ * One sentence per failing implemented source, joined with a space.
+ * E.g. "Drive henüz hiç senkron olmadı." or "Notion senkronu çalışmıyor. Son başarı: 2 sa önce."
+ */
+export function formatStaleMessage(
+  sources: HealthPayload['sources'],
+  now: Date = new Date()
+): string {
+  const sourceEntries: Array<{ key: 'notion' | 'drive'; label: string }> = [
+    { key: 'notion', label: 'Notion' },
+    { key: 'drive', label: 'Drive' },
+  ];
+
+  const sentences: string[] = [];
+
+  for (const { key, label } of sourceEntries) {
+    const source = sources[key];
+    if (!source || !source.implemented) {
+      continue;
+    }
+
+    if (!source.lastSuccessAt) {
+      sentences.push(`${label} henüz hiç senkron olmadı.`);
+    } else {
+      const time = new Date(source.lastSuccessAt).getTime();
+      if (Number.isNaN(time) || now.getTime() - time > STALE_THRESHOLD_MS) {
+        const ago = relativeTimeAgo(source.lastSuccessAt, now);
+        sentences.push(`${label} senkronu çalışmıyor. Son başarı: ${ago}.`);
+      }
+    }
+  }
+
+  return sentences.join(' ');
+}
+
 
 /**
  * Turkish relative time string (short form for feed rows).

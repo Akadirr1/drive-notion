@@ -19,13 +19,13 @@ export function SyncStatus({
   lastSuccessAt: string | null;
   ok: boolean;
 }) {
-  const text = !lastSuccessAt
-    ? 'Henüz senkron yok'
-    : `Son senkron ${relativeTimeAgo(lastSuccessAt)}`;
+  if (!lastSuccessAt) {
+    return null;
+  }
 
   return (
-    <span className="text-[13px] text-ink-muted select-none" title={lastSuccessAt ?? undefined}>
-      {text}
+    <span className="text-[13px] text-ink-muted select-none" title={lastSuccessAt}>
+      Son senkron {relativeTimeAgo(lastSuccessAt)}
     </span>
   );
 }

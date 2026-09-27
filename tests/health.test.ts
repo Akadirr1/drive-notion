@@ -143,11 +143,11 @@ describe("computeHealth", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("verifies IMPLEMENTED_SOURCES contains notion in Phase 2", () => {
-    expect(IMPLEMENTED_SOURCES).toEqual(["notion"]);
+  it("verifies IMPLEMENTED_SOURCES contains notion and drive in Phase 4", () => {
+    expect(IMPLEMENTED_SOURCES).toEqual(["notion", "drive"]);
   });
 
-  it("notion source without recent success makes ok = false when using default IMPLEMENTED_SOURCES", () => {
+  it("notion and drive sources without recent success make ok = false when using default IMPLEMENTED_SOURCES", () => {
     const rows: SyncStateRow[] = [
       makeRow({ source: "notion", lastSuccessAt: null }),
       makeRow({ source: "drive", lastSuccessAt: null }),
@@ -156,5 +156,6 @@ describe("computeHealth", () => {
     const result = computeHealth(rows, now);
     expect(result.ok).toBe(false);
     expect(result.sources.notion.implemented).toBe(true);
+    expect(result.sources.drive.implemented).toBe(true);
   });
 });

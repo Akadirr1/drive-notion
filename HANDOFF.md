@@ -1,59 +1,68 @@
 # Current state
 
-Phase 3 (Dashboard v1 on Notion Data) is complete on branch `feat/phase-3-dashboard`. The single-screen dashboard is live, wired to real Notion data in SQLite. All pure domain logic (department status, next action, progress, counts), query layer, six dashboard components, stale data banner, client visit manager cookie, Turkish grammar in sentences (`relativeTime` / `relativeTimeAgo`), and design system tokens are implemented and fully unit-tested (122 tests passing across 10 test suites). All quality gate checks pass cleanly.
+Phase 4 (Google Drive Pipeline Integration) offline implementation is complete on branch `feat/phase-4-drive`. All core logic, Drive client, service account authentication parsing, level-by-level BFS crawl with crawl-first write-after semantics, pure mapping and diff functions, event coalescing with attribute updates, normalizer Drive cases, formatting helpers, stale banner sentence generation, worker loop integration, and offline integration test suites are implemented and verified. All 179 unit and integration tests pass across 14 test suites.
 
 ## Completed
 
-- **Domain logic (`src/server/domain/`)**:
-  - `department-status.ts`: pure function computing 7 department states (`blocked`, `stale`, `active`, `waiting`, `not_started`, `done`, `idle`) in priority order with activity fallback (`max(latest_event_at, max_last_edited_time)`), plus `computeQuietSummary` for collapsed quiet departments ("{n} WP başlamadı · {k} WP beklemede · {m} tamamlandı").
-  - `next-action.ts`: picks the single highest-priority non-done task (`is_next = 1` first, else active non-blocked by `priority_rank`, `sort_order`, `dueDate`, else todo tasks with the same ordering).
-  - `progress.ts`: calculates days left to deadline in project timezone, completion percentage, progress text ("{done} / {total} görev tamamlandı · %{percent}"), and Monday 00:00 midnight in project timezone for weekly counts.
-- **Formatting utilities (`src/lib/format.ts`)**:
-  - `relativeTime`: short form for event feeds ("az önce", "12 dk", "3 sa", "dün", "3 gün").
-  - `relativeTimeAgo`: sentence form for sync status and stale banner ("az önce", "12 dk önce", "3 sa önce", "dün", "3 gün önce").
-  - `formatDateTurkish`: Turkish month and date formatting without year if in the same year.
-  - `formatDeadline`: Turkish formatted deadline with deliverable ("31 Aralık, 2 uçan prototip").
-- **Query layer (`src/server/queries/dashboard.ts`)**:
-  - `computeDashboardData(db: WriterDb, config: ProjectConfig, now: Date)`: executes all SQLite reads for non-archived tasks, recent events (last 48 hours, limit 5), weekly completed count, and department statuses.
-  - `getDashboardData(db: WriterDb | null, config: ProjectConfig)`: safe wrapper returning null if DB client is null.
-- **Dashboard UI components (`src/components/dashboard/`)**:
-  - `deadline-strip.tsx`: project name, days left (40px font), deadline & deliverable, 6px progress bar, sync status indicator.
-  - `next-action.tsx`: "Şimdi ne yapmalıyım?", 2-line clamped task title with full title on hover, Notion link, meta subtitle, empty state.
-  - `counts.tsx`: 3-column metric display for "Tıkalı" (red warning only when > 0), "Bu hafta biten", "Devam".
-  - `annunciator.tsx`: "Kim ne durumda?", loud tiles (blocked, stale, active with green dot), links to Google Drive folders, collapsed quiet summary line below.
-  - `event-feed.tsx`: "Son 48 saat", bordered list rows with new event dot (based on cookie), Lucide icons, Turkish event sentences, WP id, relative time.
-  - `stale-banner.tsx`: full-width caution banner when sync health `ok: false` ("Veriler {relativeTimeAgo} güncellendi. Senkron çalışmıyor olabilir.").
-  - `client-visit-manager.tsx`: non-HTTP-only cookie `bumin_last_visit` set on mount.
-- **Dashboard page (`src/app/page.tsx`)**:
-  - Server Component assembling all panels with `force-dynamic`. Gracefully renders error message if config fails to parse, and empty state if database file does not exist yet.
-- **Design system & tokens (`src/app/globals.css`, `layout.tsx`)**:
-  - Atkinson Hyperlegible Next font configured. Light and dark modes with exact tokens from `DESIGN.md`. Progress bar track/fill and 2-line clamp utilities.
-- **Documentation updates**:
-  - `ARCHITECTURE.md`: updated Derived logic section with 7 department statuses, annunciator loud/quiet rules, next action ordering, progress and counts.
-  - `DESIGN.md`: updated department status words, annunciator description, progress layout, counts layout, and 2-line task title clamping rule.
-  - `docs/plans/phase-3.md`: updated with Amendments A and B.
-- **Quality gate & visual verification**:
-  - Full suite passes: `pnpm typecheck`, `pnpm lint`, `pnpm test` (122 tests), `pnpm build`.
-  - Visual verification with real Notion data at 1280px and 390px in light and dark modes passed against the `DESIGN.md` review checklist.
+- **Dependency**:
+  - `@googleapis/drive@26.0.1` installed and verified against API exports (`drive`, `auth`).
+- **Configuration (`config/project.example.yaml`, `config/project.yaml`, `src/server/config.ts`)**:
+  - Added `silent_mime_prefixes` and `silent_name_patterns` to `driveSchema` with regex validation.
+- **Drive client (`src/server/integrations/drive/client.ts`)**:
+  - `parseServiceAccount(base64)`: Pure function validating credentials, throwing readable errors naming `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` for missing, non-base64, non-JSON, and missing `client_email` or `private_key`.
+  - `getDriveClient()`: Lazy singleton using `drive({ version: 'v3', auth, timeout: 30_000 })` with `@googleapis/drive` default 429/5xx retry handling.
+  - `listChildren(folderId, pageToken)`: Thin wrapper querying non-trashed children with page size 1000.
+- **Pure functions (`src/server/integrations/drive/map-file.ts`)**:
+  - `resolveDepartmentId`: Resolves from nearest ancestor folder matching `departments[].drive_folder_id`, with fallback to `WP-(\d{2})` regex on file name, else null.
+  - `resolveDocType`: Matches first matching pattern from `config.doc_types`, else "other" (folders return null).
+  - `isSilentFile`: Evaluates silent mime prefixes and filename regexes.
+  - `diffFile`: Emits `doc:created` on new file, `doc:updated` on modifiedTime or name change; returns empty array for silent files, folders, unchanged files, and trash restores.
+- **Coalescing & Event Processing (`src/server/events/coalesce.ts`, `src/server/events/process.ts`)**:
+  - `shouldCoalesce`: Pure helper checking 30-minute window (1,800,000 ms).
+  - `normalizePending`: In-place update of `DOC_CREATED` / `DOC_UPDATED` events updating `occurred_at`, `raw_event_id`, `subject_title`, `department_id`, `doc_type`, and `url` from newest raw event.
+- **Normalizer (`src/server/events/normalize.ts`)**:
+  - Added Drive branches for `doc:created` → `DOC_CREATED` and `doc:updated` → `DOC_UPDATED`.
+- **Collector orchestrator (`src/server/integrations/drive/collector.ts`)**:
+  - BFS crawl starting from `config.drive.root_folder_id`, skipping shortcuts.
+  - Crawl-first, write-after semantics: collects the whole tree in memory; on any error, writes nothing to database except `sync_state.last_error`.
+  - Transactional write of snapshots, raw events, trashing missing files (if not seed), and updating `sync_state`.
+- **Worker loop (`src/worker/index.ts`)**:
+  - Wired `syncDrive` after `syncNotion`, logged as `loop_step { step: "sync_drive", durationMs }`.
+- **Formatting & UI (`src/lib/format.ts`, `src/components/dashboard/`)**:
+  - `stripExtension`: Strips file extension for feed sentences.
+  - `getOldestLastSuccessAt`: Computes oldest non-null success timestamp across implemented sources for `SyncStatus` (never-synced source reported only by banner).
+  - `formatStaleMessage`: Generates one sentence per failing implemented source joined by space (no combined "Notion ve Drive" forms).
+- **Health query (`src/server/queries/health.ts`)**:
+  - Updated `IMPLEMENTED_SOURCES: ["notion", "drive"]`.
+- **Scripts**:
+  - Added `scripts/smoke-drive.ts` and `"smoke:drive"` npm script.
+- **Documentation**:
+  - Updated `ARCHITECTURE.md` § Drive sync with crawl-first, level-by-level BFS crawl architecture.
+  - Updated `DESIGN.md` § Copy with stale banner and sync status rules.
+- **Test coverage**:
+  - 179 tests passing across 14 test suites, including 11 offline integration tests in `tests/drive-collector.test.ts`.
 
 ## In progress
 
-- None. Phase 3 is complete.
+- Live checks (pending owner's Google Service Account JSON configuration in `.env`):
+  - 8.6 Smoke script verification (`pnpm smoke:drive`).
+  - 8.7 First live sync seed test (`SELECT COUNT(*) FROM drive_files > 0`, `raw_events = 0`, `project_events = 0`).
+  - 8.8 Live trashed file verification (`trashed = 1`, no event).
+  - 8.9 Live moved file between WP folders verification (departmentId updated, no event).
+  - 8.10 Live `/api/health` verification (`sources.drive.implemented = true`, `lastSuccessAt` recent).
 
 ## Known issues
 
-- Next.js Turbopack build logs 3 font fallback override warnings for `Atkinson Hyperlegible Next` (font loads and renders properly in browser).
+- Next.js Turbopack build logs 3 font fallback override warnings for `Atkinson Hyperlegible Next` (non-blocking).
 
 ## Next recommended step
 
-1. Merge `feat/phase-3-dashboard` into `main`.
-2. Proceed to Phase 4: Google Drive Integration & Sync.
+1. Owner shares Google Drive project root folder with service account email and adds `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` to `.env`.
+2. Run live verification steps 8.6 to 8.10.
+3. Merge `feat/phase-4-drive` into `main`.
 
 ## Important context
 
-- `/departman/[id]` and `/aktivite` are dead links until Phase 6; Annunciator tiles temporarily link to each department's Google Drive folder, and the Event Feed temporarily omits the "Tümünü gör" link.
-- `bumin_last_visit` cookie marks feed events with a black dot if they were ingested after the user's previous visit.
-- The web app never writes to SQLite; it only reads via `src/server/queries/dashboard.ts` and `src/server/queries/health.ts`.
-- Phase 1 change in `src/server/db/client.ts`: `getReaderDb()` checks file existence before returning the cached reader instance, and explicitly closes the old SQLite connection (`readerDb.$client.close()`) if the database file has disappeared from disk.
-- Event feed timestamp tooltips use `formatDateTimeTurkish` ("27 Eylül 14:32") in the project timezone rather than raw ISO timestamps per `DESIGN.md`. Dark mode strictly follows `prefers-color-scheme`.
-
+- The Drive pipeline implements crawl-first write-after: mid-crawl errors write nothing to `drive_files` or `raw_events`.
+- File renames within 30 minutes update `subject_title` in-place on the existing `DOC_CREATED` project event.
+- Stale banner outputs independent sentences for failing sources, e.g. `"Drive henüz hiç senkron olmadı."` or `"Notion senkronu çalışmıyor. Son başarı: 2 sa önce."`.

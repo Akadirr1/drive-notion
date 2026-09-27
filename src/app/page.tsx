@@ -3,7 +3,7 @@ import { getReaderDb } from '@/server/db/client';
 import { getDashboardData } from '@/server/queries/dashboard';
 import { getHealth } from '@/server/queries/health';
 import { getLastVisit } from '@/lib/last-visit';
-import { formatDateTurkish } from '@/lib/format';
+import { formatDateTurkish, getOldestLastSuccessAt } from '@/lib/format';
 import { ClientVisitManager } from '@/components/dashboard/client-visit-manager';
 import { StaleBanner } from '@/components/dashboard/stale-banner';
 import { DeadlineStrip } from '@/components/dashboard/deadline-strip';
@@ -85,12 +85,14 @@ export default async function DashboardPage() {
     driveFolderId: deptMap.get(d.departmentId)?.drive_folder_id ?? '',
   }));
 
+  const oldestSuccessAt = getOldestLastSuccessAt(health.sources);
+
   return (
     <main>
       <ClientVisitManager />
       <StaleBanner
         ok={health.ok}
-        lastSuccessAt={health.sources.notion.lastSuccessAt}
+        sources={health.sources}
       />
       <DeadlineStrip
         projectName={data.projectName}
@@ -100,7 +102,7 @@ export default async function DashboardPage() {
         progressText={data.progress.progressText}
         progressPercent={data.progress.percent}
         syncStatus={{
-          lastSuccessAt: health.sources.notion.lastSuccessAt,
+          lastSuccessAt: oldestSuccessAt,
           ok: health.ok,
         }}
       />

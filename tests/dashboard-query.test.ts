@@ -46,6 +46,8 @@ const testConfig: ProjectConfig = {
   },
   drive: {
     root_folder_id: 'root-1',
+    silent_mime_prefixes: [],
+    silent_name_patterns: [],
   },
   doc_types: {},
 };

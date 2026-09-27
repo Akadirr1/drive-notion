@@ -118,4 +118,91 @@ describe("normalizeRawEvent", () => {
     };
     expect(normalizeRawEvent(raw)).toBeNull();
   });
+
+  it("13. doc:created maps to DOC_CREATED", () => {
+    const raw = {
+      id: 201,
+      source: "drive",
+      kind: "doc:created",
+      externalId: "file-101",
+      payload: JSON.stringify({
+        before: null,
+        after: {
+          name: "Flight_Test_Report.pdf",
+          departmentId: "01",
+          docType: "report",
+          webViewLink: "https://drive.google.com/view/101",
+        },
+      }),
+      occurredAt: "2026-09-10T12:00:00.000Z",
+      ingestedAt: "2026-09-10T12:00:05.000Z",
+      processed: 0,
+    };
+
+    const result = normalizeRawEvent(raw);
+    expect(result).not.toBeNull();
+    expect(result!.type).toBe("DOC_CREATED");
+    expect(result!.source).toBe("drive");
+    expect(result!.sourceId).toBe("file-101");
+    expect(result!.subjectTitle).toBe("Flight_Test_Report.pdf");
+    expect(result!.departmentId).toBe("01");
+    expect(result!.docType).toBe("report");
+    expect(result!.url).toBe("https://drive.google.com/view/101");
+    expect(result!.occurredAt).toBe("2026-09-10T12:00:00.000Z");
+    expect(result!.rawEventId).toBe(201);
+  });
+
+  it("14. doc:updated maps to DOC_UPDATED", () => {
+    const raw = {
+      id: 202,
+      source: "drive",
+      kind: "doc:updated",
+      externalId: "file-101",
+      payload: JSON.stringify({
+        before: {
+          name: "Flight_Test_Report.pdf",
+          departmentId: "01",
+          docType: "report",
+          webViewLink: "https://drive.google.com/view/101",
+        },
+        after: {
+          name: "Flight_Test_Report_Final.pdf",
+          departmentId: "01",
+          docType: "report",
+          webViewLink: "https://drive.google.com/view/101",
+        },
+      }),
+      occurredAt: "2026-09-10T14:00:00.000Z",
+      ingestedAt: "2026-09-10T14:00:05.000Z",
+      processed: 0,
+    };
+
+    const result = normalizeRawEvent(raw);
+    expect(result).not.toBeNull();
+    expect(result!.type).toBe("DOC_UPDATED");
+    expect(result!.source).toBe("drive");
+    expect(result!.sourceId).toBe("file-101");
+    expect(result!.subjectTitle).toBe("Flight_Test_Report_Final.pdf");
+    expect(result!.departmentId).toBe("01");
+    expect(result!.docType).toBe("report");
+    expect(result!.url).toBe("https://drive.google.com/view/101");
+    expect(result!.occurredAt).toBe("2026-09-10T14:00:00.000Z");
+  });
+
+  it("15. unknown drive kind returns null", () => {
+    const raw = {
+      id: 203,
+      source: "drive",
+      kind: "doc:trashed",
+      externalId: "file-101",
+      payload: JSON.stringify({
+        after: { name: "file.pdf" },
+      }),
+      occurredAt: "2026-09-10T14:00:00.000Z",
+      ingestedAt: "2026-09-10T14:00:05.000Z",
+      processed: 0,
+    };
+
+    expect(normalizeRawEvent(raw)).toBeNull();
+  });
 });

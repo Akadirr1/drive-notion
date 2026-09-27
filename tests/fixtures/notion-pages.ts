@@ -26,6 +26,8 @@ export const testProjectConfig: ProjectConfig = {
   },
   drive: {
     root_folder_id: "drive-root-001",
+    silent_mime_prefixes: [],
+    silent_name_patterns: [],
   },
   departments: [
     {
@@ -152,6 +154,8 @@ export const buminProjectConfig: ProjectConfig = {
   },
   drive: {
     root_folder_id: "drive-bumin-root",
+    silent_mime_prefixes: [],
+    silent_name_patterns: [],
   },
   departments: [
     {
