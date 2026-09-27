@@ -148,11 +148,27 @@ describe('computeQuietSummary', () => {
     expect(summary.text).toBe('');
   });
 
-  it('12: formats quiet summary when only idle departments exist', () => {
+  it('12: formats quiet summary when only idle departments exist as başlamadı', () => {
     const statuses: DepartmentStatusResult[] = [
       { departmentId: '01', status: 'idle' },
     ];
     const summary = computeQuietSummary(statuses);
-    expect(summary.text).toBe('1 boşta');
+    expect(summary.idleCount).toBe(1);
+    expect(summary.notStartedCount).toBe(0);
+    expect(summary.text).toBe('1 WP başlamadı');
+  });
+
+  it('13: counts idle and not_started together with waiting in summary text', () => {
+    const statuses: DepartmentStatusResult[] = [
+      ...Array.from({ length: 15 }, (_, i) => ({
+        departmentId: String(i + 2).padStart(2, '0'),
+        status: 'idle' as const,
+      })),
+      { departmentId: '01', status: 'waiting' as const },
+    ];
+    const summary = computeQuietSummary(statuses);
+    expect(summary.idleCount).toBe(15);
+    expect(summary.waitingCount).toBe(1);
+    expect(summary.text).toBe('15 WP başlamadı · 1 WP beklemede');
   });
 });

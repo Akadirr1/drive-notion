@@ -28,7 +28,7 @@ export function NextAction({ action }: NextActionProps) {
             title={action.title}
             className="group block"
           >
-            <h2 className="text-[18px] font-semibold text-ink line-clamp-2 group-hover:underline leading-snug">
+            <h2 className="text-[18px] font-semibold text-ink line-clamp-3 md:line-clamp-2 group-hover:underline leading-snug">
               {action.title}
             </h2>
           </a>

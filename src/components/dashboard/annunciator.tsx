@@ -25,7 +25,7 @@ export function Annunciator({ departments, quietSummary }: AnnunciatorProps) {
       </div>
 
       {loudDepartments.length > 0 && (
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2 sm:gap-2.5 mb-3">
+        <div className="grid grid-cols-2 md:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2 sm:gap-2.5 mb-3">
           {loudDepartments.map((dept) => {
             const driveUrl = `https://drive.google.com/drive/folders/${dept.driveFolderId}`;
             return (
@@ -51,7 +51,7 @@ export function Annunciator({ departments, quietSummary }: AnnunciatorProps) {
                   )}
                 </div>
 
-                <div className="text-[14px] sm:text-[15px] font-medium leading-tight line-clamp-2 break-words text-ink mb-1.5">
+                <div className="text-[14px] sm:text-[15px] font-medium leading-tight text-ink mb-1.5">
                   {dept.name}
                 </div>
 

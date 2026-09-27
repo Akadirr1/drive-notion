@@ -107,18 +107,16 @@ export function computeQuietSummary(
     else if (s.status === 'idle') idleCount++;
   }
 
+  const notStartedTotal = notStartedCount + idleCount;
   const parts: string[] = [];
-  if (notStartedCount > 0) {
-    parts.push(`${notStartedCount} WP başlamadı`);
+  if (notStartedTotal > 0) {
+    parts.push(`${notStartedTotal} WP başlamadı`);
   }
   if (waitingCount > 0) {
     parts.push(`${waitingCount} WP beklemede`);
   }
   if (doneCount > 0) {
     parts.push(`${doneCount} tamamlandı`);
-  }
-  if (idleCount > 0) {
-    parts.push(`${idleCount} boşta`);
   }
 
   return {
