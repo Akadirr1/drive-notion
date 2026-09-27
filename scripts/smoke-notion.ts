@@ -4,6 +4,7 @@ import {
   retrieveDataSource,
 } from "@/server/integrations/notion/client";
 import {
+  buildRowFilter,
   validateSchema,
   mapPage,
   deriveStatusGroups,
@@ -29,8 +30,10 @@ async function main() {
   );
 
   console.log("Querying first 5 tasks from Notion...");
+  const filter = buildRowFilter(config.notion.row_filter);
   const response = await queryDataSource(config.notion.tasks_data_source_id, {
     page_size: 5,
+    filter,
   });
 
   const pages = response.results.filter(
@@ -52,15 +55,19 @@ async function main() {
       }
     };
 
-    const snapshot = mapPage(page, config, schemaGroups, warn);
+    const snapshot = mapPage(page, config, schemaGroups, warn, schema);
     const shortId = snapshot.pageId.slice(0, 8);
     const deptDisplay =
       snapshot.departmentId ?? (unknownDeptFlag ? "⚠ unknown" : "none");
     const blockedDisplay = snapshot.blocked ? "✓" : "✗";
     const nextDisplay = snapshot.isNext ? "✓" : "✗";
+    const priorityDisplay =
+      snapshot.priorityRank !== null ? `rank ${snapshot.priorityRank}` : "none";
+    const orderDisplay =
+      snapshot.sortOrder !== null ? `${snapshot.sortOrder}` : "none";
 
     console.log(
-      `[${shortId}] "${snapshot.title}" | Status: ${snapshot.status} (${snapshot.statusGroup}) | Dept: ${deptDisplay} | Blocked: ${blockedDisplay} | Next: ${nextDisplay} | URL: ${snapshot.url}`
+      `[${shortId}] "${snapshot.title}" | Status: ${snapshot.status} (${snapshot.statusGroup}) | Dept: ${deptDisplay} | Blocked: ${blockedDisplay} | Next: ${nextDisplay} | Priority: ${priorityDisplay} | Order: ${orderDisplay} | URL: ${snapshot.url}`
     );
   }
 

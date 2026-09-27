@@ -32,6 +32,30 @@ export function buildAfterPayload(snapshot: NotionTaskSnapshot): TaskAfterPayloa
 }
 
 /**
+ * Checks whether any field in the task snapshot changed.
+ */
+export function hasTaskChanged(
+  before: NotionTaskSnapshot,
+  after: NotionTaskSnapshot
+): boolean {
+  return (
+    before.title !== after.title ||
+    before.status !== after.status ||
+    before.statusGroup !== after.statusGroup ||
+    before.departmentId !== after.departmentId ||
+    before.milestoneId !== after.milestoneId ||
+    before.dueDate !== after.dueDate ||
+    before.blocked !== after.blocked ||
+    before.blockerNote !== after.blockerNote ||
+    before.isNext !== after.isNext ||
+    before.priorityRank !== after.priorityRank ||
+    before.sortOrder !== after.sortOrder ||
+    before.url !== after.url ||
+    before.archived !== after.archived
+  );
+}
+
+/**
  * Returns raw events for all changes between before and after.
  * before = null means a new task. Returns [] for no-op (no changes).
  */
@@ -70,20 +94,7 @@ export function diffTask(
   }
 
   // Existing task: check if completely unchanged
-  const hasChanged =
-    before.title !== after.title ||
-    before.status !== after.status ||
-    before.statusGroup !== after.statusGroup ||
-    before.departmentId !== after.departmentId ||
-    before.milestoneId !== after.milestoneId ||
-    before.dueDate !== after.dueDate ||
-    before.blocked !== after.blocked ||
-    before.blockerNote !== after.blockerNote ||
-    before.isNext !== after.isNext ||
-    before.url !== after.url ||
-    before.archived !== after.archived;
-
-  if (!hasChanged) {
+  if (!hasTaskChanged(before, after)) {
     return [];
   }
 

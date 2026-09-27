@@ -7,22 +7,29 @@ project:
 
 notion:
   tasks_data_source_id: "NOTION_DATA_SOURCE_ID_HERE"
+  row_filter:
+    property: "Grup"
+    equals: "Görev"
   properties:
-    title: "Name"
+    title: "Görev"
     status: "Durum"
-    department: "Departman"
-    due: "Tarih"
-    blocked: "Tıkalı"
-    blocker_note: "Neden"
-    milestone: "Milestone"
-    next: "Sıradaki"
+    department: "WP"
+    blocker_note: "Engel"
+    priority: "Öncelik"
+    order: "Sıra"
+  blocked_statuses:
+    - "BLOKE"
   status_groups:
     todo:
-      - "Yapılacak"
+      - "BAŞLANMADI"
+      - "HAZIR"
     active:
-      - "Devam ediyor"
+      - "AKTİF"
+      - "BLOKE"
+      - "DOĞRULAMAYA HAZIR"
     done:
-      - "Tamamlandı"
+      - "DOĞRULANDI"
+      - "KAPALI"
 
 drive:
   root_folder_id: "DRIVE_ROOT_FOLDER_ID_HERE"
@@ -30,24 +37,26 @@ drive:
 departments:
   - id: "00"
     name: "Koordinasyon"
-    notion_value: "00 Koordinasyon"
+    notion_value: "WP-00"
     drive_folder_id: "DRIVE_FOLDER_ID_HERE"
   - id: "01"
     name: "Avionik"
-    notion_value: "01 Avionik"
+    notion_value: "WP-01"
     drive_folder_id: "DRIVE_FOLDER_ID_HERE"
 
 doc_types:
-  test:
-    - "test"
-  report:
-    - "rapor"
-    - "report"
+  handoff:
+    - '^HO-\d'
+  change:
+    - '^CHG-\d'
+  ncr:
+    - '^NCR-\d'
+  open_issue:
+    - '^OI-\d'
+  requirement:
+    - '^RB-'
+    - '^REQUIREMENTS'
   decision:
-    - "karar"
-
-milestones:
-  - id: m1
-    name: "İlk uçuş"
-    due: "2026-10-31"
-    notion_value: "M1"
+    - '_DECISION'
+  test:
+    - '(^|[_-])(TEST|ATP)'

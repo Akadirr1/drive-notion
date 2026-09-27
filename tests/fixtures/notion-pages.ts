@@ -109,7 +109,7 @@ export const validDataSourceSchema: DataSourceSchema = {
 export const schemaWithWrongType: DataSourceSchema = {
   properties: {
     Görev: { id: "p1", name: "Görev", type: "title" },
-    Durum: { id: "p2", name: "Durum", type: "select" }, // Wrong type: select instead of status
+    Durum: { id: "p2", name: "Durum", type: "number" }, // Wrong type: neither status nor select
     Birim: { id: "p3", name: "Birim", type: "select" },
   },
 };
@@ -118,6 +118,119 @@ export const schemaMissingRequired: DataSourceSchema = {
   properties: {
     Görev: { id: "p1", name: "Görev", type: "title" },
     // Missing Durum and Birim
+  },
+};
+
+export const buminProjectConfig: ProjectConfig = {
+  project: {
+    name: "BUMIN-2",
+    deadline: "2026-12-31",
+    deliverable: "2 uçan prototip",
+    timezone: "Europe/Istanbul",
+    stale_days: 3,
+  },
+  notion: {
+    tasks_data_source_id: "ds-bumin-kanban",
+    row_filter: {
+      property: "Grup",
+      equals: "Görev",
+    },
+    properties: {
+      title: "Name",
+      status: "Durum",
+      department: "Departman",
+      blocker_note: "Engel",
+      priority: "Öncelik",
+      order: "Sıra",
+    },
+    blocked_statuses: ["BLOKE"],
+    status_groups: {
+      todo: ["BAŞLANMADI", "HAZIR"],
+      active: ["AKTİF", "BLOKE", "DOĞRULAMAYA HAZIR"],
+      done: ["DOĞRULANDI", "KAPALI"],
+    },
+  },
+  drive: {
+    root_folder_id: "drive-bumin-root",
+  },
+  departments: [
+    {
+      id: "00",
+      name: "Koordinasyon",
+      notion_value: "00 Koordinasyon",
+      drive_folder_id: "drive-folder-00",
+    },
+    {
+      id: "01",
+      name: "Avionik",
+      notion_value: "01 Avionik",
+      drive_folder_id: "drive-folder-01",
+    },
+  ],
+  doc_types: {
+    test: ["^NCR-", "^OI-"],
+    report: ["^HO-", "^CHG-", "^RB-", "^REQUIREMENTS_"],
+    decision: ["^WP-.*_DECISION"],
+  },
+};
+
+export const buminDataSourceSchema: DataSourceSchema = {
+  properties: {
+    Name: { id: "p-name", name: "Name", type: "title" },
+    Durum: {
+      id: "p-durum",
+      name: "Durum",
+      type: "select",
+      select: {
+        options: [
+          { id: "opt-1", name: "BAŞLANMADI" },
+          { id: "opt-2", name: "HAZIR" },
+          { id: "opt-3", name: "AKTİF" },
+          { id: "opt-4", name: "BLOKE" },
+          { id: "opt-5", name: "DOĞRULAMAYA HAZIR" },
+          { id: "opt-6", name: "DOĞRULANDI" },
+          { id: "opt-7", name: "KAPALI" },
+        ],
+      },
+    },
+    Departman: {
+      id: "p-dept",
+      name: "Departman",
+      type: "select",
+      select: {
+        options: [
+          { id: "d-00", name: "00 Koordinasyon" },
+          { id: "d-01", name: "01 Avionik" },
+        ],
+      },
+    },
+    Grup: {
+      id: "p-grup",
+      name: "Grup",
+      type: "select",
+      select: {
+        options: [
+          { id: "g-wp", name: "Work Package" },
+          { id: "g-gorev", name: "Görev" },
+          { id: "g-gate", name: "Gate" },
+        ],
+      },
+    },
+    Engel: { id: "p-engel", name: "Engel", type: "rich_text" },
+    Öncelik: {
+      id: "p-oncelik",
+      name: "Öncelik",
+      type: "select",
+      select: {
+        options: [
+          { id: "pr-0", name: "P0-Kritik" },
+          { id: "pr-1", name: "P1-Yüksek" },
+          { id: "pr-2", name: "P2-Normal" },
+          { id: "pr-3", name: "P3-Sonra" },
+        ],
+      },
+    },
+    Sıra: { id: "p-sira", name: "Sıra", type: "number" },
   },
 };
 
@@ -296,6 +409,181 @@ export const pageFixtures = {
         id: "p8",
         type: "checkbox",
         checkbox: true,
+      },
+    },
+  } as unknown as PageObjectResponse,
+};
+
+export const buminPageFixtures = {
+  // Task with Durum = BLOKE and Engel filled
+  blokePage: {
+    object: "page",
+    id: "page-bumin-bloke",
+    url: "https://notion.so/page-bumin-bloke",
+    archived: false,
+    in_trash: false,
+    last_edited_time: "2026-09-27T12:00:00.000Z",
+    properties: {
+      Name: {
+        id: "p-name",
+        type: "title",
+        title: [{ plain_text: "Motor sürücüsü entegrasyonu" }],
+      },
+      Durum: {
+        id: "p-durum",
+        type: "select",
+        select: { id: "opt-4", name: "BLOKE" },
+      },
+      Departman: {
+        id: "p-dept",
+        type: "select",
+        select: { id: "d-01", name: "01 Avionik" },
+      },
+      Grup: {
+        id: "p-grup",
+        type: "select",
+        select: { id: "g-gorev", name: "Görev" },
+      },
+      Engel: {
+        id: "p-engel",
+        type: "rich_text",
+        rich_text: [{ plain_text: "Motor sürücüsü arızalı, yenisi bekleniyor" }],
+      },
+      Öncelik: {
+        id: "p-oncelik",
+        type: "select",
+        select: { id: "pr-0", name: "P0-Kritik" },
+      },
+      Sıra: {
+        id: "p-sira",
+        type: "number",
+        number: 1,
+      },
+    },
+  } as unknown as PageObjectResponse,
+
+  // Task with Durum = AKTİF and Engel filled with "Yok. ..."
+  aktifPage: {
+    object: "page",
+    id: "page-bumin-aktif",
+    url: "https://notion.so/page-bumin-aktif",
+    archived: false,
+    in_trash: false,
+    last_edited_time: "2026-09-27T12:05:00.000Z",
+    properties: {
+      Name: {
+        id: "p-name",
+        type: "title",
+        title: [{ plain_text: "Uçuş kontrol kartı testi" }],
+      },
+      Durum: {
+        id: "p-durum",
+        type: "select",
+        select: { id: "opt-3", name: "AKTİF" },
+      },
+      Departman: {
+        id: "p-dept",
+        type: "select",
+        select: { id: "d-01", name: "01 Avionik" },
+      },
+      Grup: {
+        id: "p-grup",
+        type: "select",
+        select: { id: "g-gorev", name: "Görev" },
+      },
+      Engel: {
+        id: "p-engel",
+        type: "rich_text",
+        rich_text: [{ plain_text: "Yok. Testler devam ediyor." }],
+      },
+      Öncelik: {
+        id: "p-oncelik",
+        type: "select",
+        select: { id: "pr-1", name: "P1-Yüksek" },
+      },
+      Sıra: {
+        id: "p-sira",
+        type: "number",
+        number: 2.5,
+      },
+    },
+  } as unknown as PageObjectResponse,
+
+  // Task with Durum = BAŞLANMADI
+  baslanmadiPage: {
+    object: "page",
+    id: "page-bumin-baslanmadi",
+    url: "https://notion.so/page-bumin-baslanmadi",
+    archived: false,
+    in_trash: false,
+    last_edited_time: "2026-09-27T12:10:00.000Z",
+    properties: {
+      Name: {
+        id: "p-name",
+        type: "title",
+        title: [{ plain_text: "Telemetri modülü montajı" }],
+      },
+      Durum: {
+        id: "p-durum",
+        type: "select",
+        select: { id: "opt-1", name: "BAŞLANMADI" },
+      },
+      Departman: {
+        id: "p-dept",
+        type: "select",
+        select: { id: "d-01", name: "01 Avionik" },
+      },
+      Grup: {
+        id: "p-grup",
+        type: "select",
+        select: { id: "g-gorev", name: "Görev" },
+      },
+      Engel: {
+        id: "p-engel",
+        type: "rich_text",
+        rich_text: [{ plain_text: "Yok." }],
+      },
+      Öncelik: {
+        id: "p-oncelik",
+        type: "select",
+        select: { id: "pr-2", name: "P2-Normal" },
+      },
+      Sıra: {
+        id: "p-sira",
+        type: "number",
+        number: 5,
+      },
+    },
+  } as unknown as PageObjectResponse,
+
+  // Work Package row (Grup != Görev)
+  workPackageRow: {
+    object: "page",
+    id: "page-bumin-wp",
+    url: "https://notion.so/page-bumin-wp",
+    archived: false,
+    in_trash: false,
+    last_edited_time: "2026-09-27T12:15:00.000Z",
+    properties: {
+      Name: {
+        id: "p-name",
+        type: "title",
+        title: [{ plain_text: "WP-01 Avionik Paketi" }],
+      },
+      Durum: {
+        id: "p-durum",
+        type: "select",
+        select: { id: "opt-3", name: "AKTİF" },
+      },
+      Departman: {
+        id: "p-dept",
+        type: "select",
+        select: { id: "d-01", name: "01 Avionik" },
+      },
+      Grup: {
+        id: "p-grup",
+        type: "select",
+        select: { id: "g-wp", name: "Work Package" },
       },
     },
   } as unknown as PageObjectResponse,

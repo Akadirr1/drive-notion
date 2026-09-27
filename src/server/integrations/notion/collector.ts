@@ -6,6 +6,7 @@ import { notionTasks, rawEvents, syncState } from "@/server/db/schema";
 import { queryDataSource, retrieveDataSource } from "./client";
 import { diffTask } from "./diff-task";
 import {
+  buildRowFilter,
   deriveStatusGroups,
   mapPage,
   validateSchema,
@@ -18,7 +19,7 @@ import {
  * 1. Read sync_state to determine if this is the initial seed.
  * 2. Retrieve schema and validate against config.notion.properties.
  * 3. Derive status groups from schema (with config overrides applied per-page).
- * 4. Perform a full fetch of all pages (paginated, no filter).
+ * 4. Perform a full fetch of all pages (paginated, with row filter if configured).
  * 5. Map each page to a snapshot, diff against existing snapshot (if not seed),
  *    and transactionally write snapshots + raw events.
  * 6. Mark snapshots not seen in this complete fetch as archived = 1 (if not seed).
@@ -60,7 +61,8 @@ export async function syncNotion(
       config.notion.properties.status
     );
 
-    // 5. Full fetch (paginate, no filter)
+    // 5. Full fetch (paginate with row filter if configured)
+    const rowFilter = buildRowFilter(config.notion.row_filter);
     const allPages: PageObjectResponse[] = [];
     let startCursor: string | undefined;
 
@@ -69,6 +71,7 @@ export async function syncNotion(
         config.notion.tasks_data_source_id,
         {
           start_cursor: startCursor,
+          filter: rowFilter,
         }
       );
 
@@ -91,7 +94,7 @@ export async function syncNotion(
     const seenPageIds = new Set<string>();
 
     for (const page of allPages) {
-      const snapshot = mapPage(page, config, schemaGroups, warn);
+      const snapshot = mapPage(page, config, schemaGroups, warn, schema);
       seenPageIds.add(snapshot.pageId);
 
       const existing = db

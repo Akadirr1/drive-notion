@@ -93,4 +93,39 @@ doc_types:
       fs.unlinkSync(tmpFile);
     }
   });
+
+  it("rejects an invalid doc_types regex with a readable message naming the doc type and pattern", () => {
+    const yaml = `
+project:
+  name: "BUMIN-2"
+  deadline: "2026-12-31"
+  deliverable: "test"
+  timezone: Europe/Istanbul
+  stale_days: 3
+notion:
+  tasks_data_source_id: "abc"
+  properties:
+    title: "Name"
+    status: "Durum"
+    department: "Departman"
+drive:
+  root_folder_id: "xyz"
+departments:
+  - id: "00"
+    name: "Test"
+    notion_value: "00 Test"
+    drive_folder_id: "folder"
+doc_types:
+  broken_type: ["[invalid(regex"]
+`;
+
+    const tmpFile = writeTempYaml(yaml);
+    try {
+      expect(() => loadConfig(tmpFile)).toThrowError(
+        /Invalid regular expression for doc_type "broken_type": "\[invalid\(regex"/
+      );
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
 });

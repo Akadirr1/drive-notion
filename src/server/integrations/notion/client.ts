@@ -1,6 +1,7 @@
 import {
   Client,
   type GetDataSourceResponse,
+  type QueryDataSourceParameters,
   type QueryDataSourceResponse,
 } from "@notionhq/client";
 
@@ -37,7 +38,11 @@ export function getNotionClient(): Client {
  */
 export async function queryDataSource(
   dataSourceId: string,
-  opts?: { start_cursor?: string; page_size?: number }
+  opts?: {
+    start_cursor?: string;
+    page_size?: number;
+    filter?: QueryDataSourceParameters["filter"];
+  }
 ): Promise<QueryDataSourceResponse> {
   const client = getNotionClient();
   return client.dataSources.query({

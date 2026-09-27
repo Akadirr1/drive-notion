@@ -25,6 +25,9 @@ import {
   testProjectConfig,
   validDataSourceSchema,
   pageFixtures,
+  buminProjectConfig,
+  buminDataSourceSchema,
+  buminPageFixtures,
 } from "./fixtures/notion-pages";
 
 // Mock Notion client methods
@@ -285,5 +288,109 @@ describe("syncNotion and normalizePending offline integration tests", () => {
     const tasks = db.select().from(notionTasks).all();
     expect(tasks).toHaveLength(1);
     expect(tasks[0].title).toBe("Assemble avionics harness");
+  });
+
+  it("(6) queryDataSource is called with the row filter on every page", async () => {
+    const db = createTestDb();
+
+    vi.mocked(retrieveDataSource).mockResolvedValueOnce(
+      buminDataSourceSchema as unknown as GetDataSourceResponse
+    );
+
+    // Page 1: returns blokePage, has_more: true
+    vi.mocked(queryDataSource)
+      .mockResolvedValueOnce({
+        results: [buminPageFixtures.blokePage],
+        has_more: true,
+        next_cursor: "page-2-cursor",
+      } as unknown as QueryDataSourceResponse)
+      // Page 2: returns aktifPage, has_more: false
+      .mockResolvedValueOnce({
+        results: [buminPageFixtures.aktifPage],
+        has_more: false,
+        next_cursor: null,
+      } as unknown as QueryDataSourceResponse);
+
+    await syncNotion(db, buminProjectConfig);
+
+    expect(queryDataSource).toHaveBeenCalledTimes(2);
+
+    // Verify row filter is passed on every page
+    const expectedFilter = {
+      property: "Grup",
+      select: {
+        equals: "Görev",
+      },
+    };
+
+    expect(queryDataSource).toHaveBeenNthCalledWith(
+      1,
+      buminProjectConfig.notion.tasks_data_source_id,
+      {
+        start_cursor: undefined,
+        filter: expectedFilter,
+      }
+    );
+
+    expect(queryDataSource).toHaveBeenNthCalledWith(
+      2,
+      buminProjectConfig.notion.tasks_data_source_id,
+      {
+        start_cursor: "page-2-cursor",
+        filter: expectedFilter,
+      }
+    );
+
+    const tasks = db.select().from(notionTasks).all();
+    expect(tasks).toHaveLength(2);
+    const blokeTask = tasks.find((t) => t.pageId === buminPageFixtures.blokePage.id);
+    expect(blokeTask?.blocked).toBe(1);
+    expect(blokeTask?.priorityRank).toBe(0);
+    expect(blokeTask?.sortOrder).toBe(1);
+  });
+
+  it("(7) a row that leaves the row filter is no longer returned and gets archived by the existing full-fetch rule", async () => {
+    const db = createTestDb();
+
+    vi.mocked(retrieveDataSource).mockResolvedValue(
+      buminDataSourceSchema as unknown as GetDataSourceResponse
+    );
+
+    // Seed sync returns two tasks matching row filter
+    vi.mocked(queryDataSource).mockResolvedValueOnce({
+      results: [buminPageFixtures.blokePage, buminPageFixtures.aktifPage],
+      has_more: false,
+      next_cursor: null,
+    } as unknown as QueryDataSourceResponse);
+
+    await syncNotion(db, buminProjectConfig);
+
+    expect(db.select().from(notionTasks).where(eq(notionTasks.archived, 0)).all()).toHaveLength(2);
+
+    // Second sync: blokePage was converted to a Work Package in Notion, so it left the filter.
+    // The query returns only aktifPage.
+    vi.mocked(queryDataSource).mockResolvedValueOnce({
+      results: [buminPageFixtures.aktifPage],
+      has_more: false,
+      next_cursor: null,
+    } as unknown as QueryDataSourceResponse);
+
+    await syncNotion(db, buminProjectConfig);
+
+    // blokePage is now marked archived = 1
+    const blokeInDb = db
+      .select()
+      .from(notionTasks)
+      .where(eq(notionTasks.pageId, buminPageFixtures.blokePage.id))
+      .get();
+    expect(blokeInDb?.archived).toBe(1);
+
+    // aktifPage is still archived = 0
+    const aktifInDb = db
+      .select()
+      .from(notionTasks)
+      .where(eq(notionTasks.pageId, buminPageFixtures.aktifPage.id))
+      .get();
+    expect(aktifInDb?.archived).toBe(0);
   });
 });

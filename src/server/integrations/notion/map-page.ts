@@ -19,6 +19,10 @@ export interface DataSourceSchema {
         options?: Array<{ id: string; name: string; color?: string; description?: string | null }>;
         groups?: Array<{ id: string; name: string; option_ids: string[] }>;
       };
+      select?: {
+        options?: Array<{ id: string; name: string; color?: string; description?: string | null }>;
+      };
+      options?: Array<{ id?: string; name: string; color?: string; description?: string | null }>;
       [key: string]: unknown;
     }
   >;
@@ -37,18 +41,58 @@ export interface NotionTaskSnapshot {
   blocked: number; // 0 or 1
   blockerNote: string | null;
   isNext: number; // 0 or 1
+  priorityRank: number | null;
+  sortOrder: number | null;
   url: string;
   archived: number; // 0 or 1
   lastEditedTime: string;
 }
 
+export function getPropOptions(
+  prop:
+    | {
+        status?: { options?: Array<{ id?: string; name: string }> };
+        select?: { options?: Array<{ id?: string; name: string }> };
+        options?: Array<{ id?: string; name: string }>;
+      }
+    | undefined
+): string[] {
+  if (!prop) return [];
+  if (prop.select?.options && Array.isArray(prop.select.options)) {
+    return prop.select.options.map((o) => o.name);
+  }
+  if (prop.status?.options && Array.isArray(prop.status.options)) {
+    return prop.status.options.map((o) => o.name);
+  }
+  if (Array.isArray(prop.options)) {
+    return prop.options.map((o) => o.name);
+  }
+  return [];
+}
+
 /**
- * Validates the data source schema against config.notion.properties.
+ * Builds a query filter for Notion queryDataSource based on config.notion.row_filter.
+ */
+export function buildRowFilter(rowFilter?: { property: string; equals: string }) {
+  if (!rowFilter) {
+    return undefined;
+  }
+  return {
+    property: rowFilter.property,
+    select: {
+      equals: rowFilter.equals,
+    },
+  };
+}
+
+/**
+ * Validates the data source schema against config.notion.properties and constraints.
  * Throws PropertyConfigError naming the property, expected type, and config/project.yaml.
  */
 export function validateSchema(
   schema: DataSourceSchema,
-  config: ProjectConfig
+  config: ProjectConfig,
+  warn?: (msg: object) => void
 ): void {
   const availableKeys = Object.keys(schema.properties || {});
   const availableList = availableKeys.join(", ");
@@ -83,12 +127,118 @@ export function validateSchema(
     }
   }
 
-  // Required properties
+  // 1. Title property (required)
   checkProp("title", config.notion.properties.title, "title", true);
-  checkProp("status", config.notion.properties.status, "status", true);
+
+  // 2. Status property: accepts "status" or "select"
+  const statusProp = findProp(config.notion.properties.status);
+  if (!statusProp) {
+    throw new PropertyConfigError(
+      `Notion property "${config.notion.properties.status}" (configured as notion.properties.status in config/project.yaml) not found in schema. Available properties: [${availableList}]`
+    );
+  }
+
+  if (statusProp.type !== "status" && statusProp.type !== "select") {
+    throw new PropertyConfigError(
+      `Notion property "${config.notion.properties.status}" (configured as notion.properties.status in config/project.yaml) expected type "status" or "select" but found "${statusProp.type}". Available properties: [${availableList}]`
+    );
+  }
+
+  // 3. Department property (required)
   checkProp("department", config.notion.properties.department, "select", true);
 
-  // Optional properties
+  const statusOptions = getPropOptions(statusProp);
+
+  // For select: status_groups is required, and every option of the select must appear in exactly one group
+  if (statusProp.type === "select") {
+    if (!config.notion.status_groups) {
+      throw new PropertyConfigError(
+        `notion.status_groups is required in config/project.yaml when notion.properties.status is of type "select"`
+      );
+    }
+
+    const { todo = [], active = [], done = [] } = config.notion.status_groups;
+    const unlisted: string[] = [];
+    const duplicated: string[] = [];
+
+    for (const opt of statusOptions) {
+      const inTodo = todo.filter((v) => v === opt).length;
+      const inActive = active.filter((v) => v === opt).length;
+      const inDone = done.filter((v) => v === opt).length;
+      const total = inTodo + inActive + inDone;
+
+      if (total === 0) {
+        unlisted.push(opt);
+      } else if (total > 1) {
+        duplicated.push(opt);
+      }
+    }
+
+    if (unlisted.length > 0) {
+      throw new PropertyConfigError(
+        `Unlisted status option(s) in config/project.yaml under notion.status_groups: [${unlisted.join(", ")}]. All options of select property "${config.notion.properties.status}" must appear in exactly one group.`
+      );
+    }
+
+    if (duplicated.length > 0) {
+      throw new PropertyConfigError(
+        `Duplicated status option(s) in config/project.yaml under notion.status_groups: [${duplicated.join(", ")}]. Every option must appear in exactly one group.`
+      );
+    }
+
+    // A listed value that is not an option only logs a warning
+    const allListed = [...todo, ...active, ...done];
+    for (const listed of allListed) {
+      if (!statusOptions.includes(listed)) {
+        const warnObj = {
+          event: "notion_status_group_unknown_option",
+          option: listed,
+          property: config.notion.properties.status,
+        };
+        if (warn) {
+          warn(warnObj);
+        } else {
+          console.warn(JSON.stringify(warnObj));
+        }
+      }
+    }
+  }
+
+  // 4. Blocked statuses (optional string[])
+  if (config.notion.blocked_statuses && config.notion.blocked_statuses.length > 0) {
+    const unknownBlocked = config.notion.blocked_statuses.filter(
+      (status) => !statusOptions.includes(status)
+    );
+    if (unknownBlocked.length > 0) {
+      throw new PropertyConfigError(
+        `Unknown blocked_statuses option(s) in config/project.yaml: [${unknownBlocked.join(", ")}]. Available options for status property "${config.notion.properties.status}": [${statusOptions.join(", ")}]`
+      );
+    }
+  }
+
+  // 5. Row filter (optional { property, equals })
+  if (config.notion.row_filter) {
+    const rf = config.notion.row_filter;
+    const rfProp = findProp(rf.property);
+    if (!rfProp) {
+      throw new PropertyConfigError(
+        `Row filter property "${rf.property}" (configured in notion.row_filter in config/project.yaml) not found in schema. Available properties: [${availableList}]`
+      );
+    }
+    if (rfProp.type !== "select") {
+      throw new PropertyConfigError(
+        `Row filter property "${rf.property}" (configured in notion.row_filter in config/project.yaml) expected type "select" but found "${rfProp.type}".`
+      );
+    }
+    const rfOptions = getPropOptions(rfProp);
+    if (!rfOptions.includes(rf.equals)) {
+      throw new PropertyConfigError(
+        `Row filter option "${rf.equals}" (configured in notion.row_filter.equals in config/project.yaml) is not an option of property "${rf.property}". Available options: [${rfOptions.join(", ")}]`
+      );
+    }
+  }
+
+  // 6. Optional properties
   if (config.notion.properties.due) {
     checkProp("due", config.notion.properties.due, "date", false);
   }
@@ -108,6 +258,12 @@ export function validateSchema(
   }
   if (config.notion.properties.next) {
     checkProp("next", config.notion.properties.next, "checkbox", false);
+  }
+  if (config.notion.properties.priority) {
+    checkProp("priority", config.notion.properties.priority, "select", false);
+  }
+  if (config.notion.properties.order) {
+    checkProp("order", config.notion.properties.order, "number", false);
   }
 }
 
@@ -158,6 +314,7 @@ export function deriveStatusGroups(
  * - Always derives baseline groups from the schema.
  * - If config.notion.status_groups is set, it overrides only the options it lists.
  * - A status value not listed in config overrides falls back to its schema-derived group with a warning.
+ * - An empty status maps to "todo" without a warning.
  * - Never falls silently to "todo".
  */
 export function resolveStatusGroup(
@@ -168,6 +325,10 @@ export function resolveStatusGroup(
     | undefined,
   warn: (msg: object) => void
 ): "todo" | "active" | "done" {
+  if (!statusName) {
+    return "todo";
+  }
+
   if (configStatusGroups) {
     if (configStatusGroups.todo?.includes(statusName)) {
       return "todo";
@@ -217,8 +378,14 @@ export function resolveStatusGroup(
  * Maps a Notion page to a snapshot.
  * - Joins ALL plain_text segments for title and rich_text (not just [0]).
  * - Unknown department → null + logs via the provided warn callback.
- * - Resolves status group via resolveStatusGroup (schema groups + config overrides + warning on fallback).
- * - Missing optional properties → default values (null/false).
+ * - Resolves status group via resolveStatusGroup.
+ * - Handles select and status property types for status.
+ * - Empty status maps to "todo" without a warning.
+ * - Blocked: true if status in config.notion.blocked_statuses or blocked checkbox is true.
+ * - Blocker note: stored only while blocked; otherwise null.
+ * - Priority rank: index in select options (0 = first), or null.
+ * - Sort order: number value or null.
+ * - Missing optional properties → default values (null/0).
  */
 interface NotionPropertyItem {
   id?: string;
@@ -230,13 +397,15 @@ interface NotionPropertyItem {
   select?: { id?: string; name?: string } | null;
   date?: { start?: string } | null;
   checkbox?: boolean;
+  number?: number | null;
 }
 
 export function mapPage(
   page: PageObjectResponse,
   config: ProjectConfig,
   schemaGroups: Map<string, "todo" | "active" | "done">,
-  warn: (msg: object) => void
+  warn: (msg: object) => void,
+  schemaOrPriorityOptions?: DataSourceSchema | string[]
 ): NotionTaskSnapshot {
   const props = (page.properties || {}) as Record<string, NotionPropertyItem>;
 
@@ -254,16 +423,23 @@ export function mapPage(
       .join("");
   }
 
-  // 2. Status: name + group resolution
+  // 2. Status: read .select.name or .status.name depending on the type
   const statusProp = getProp(config.notion.properties.status);
-  const statusName =
-    statusProp?.type === "status" ? statusProp.status?.name || "" : "";
-  const statusGroup = resolveStatusGroup(
-    statusName,
-    schemaGroups,
-    config.notion.status_groups,
-    warn
-  );
+  let statusName = "";
+  if (statusProp?.type === "select") {
+    statusName = statusProp.select?.name || "";
+  } else if (statusProp?.type === "status") {
+    statusName = statusProp.status?.name || "";
+  }
+
+  const statusGroup = !statusName
+    ? "todo"
+    : resolveStatusGroup(
+        statusName,
+        schemaGroups,
+        config.notion.status_groups,
+        warn
+      );
 
   // 3. Department: select value matching config.departments
   const deptProp = getProp(config.notion.properties.department);
@@ -309,18 +485,25 @@ export function mapPage(
     }
   }
 
-  // 6. Blocked (optional)
-  let blocked = 0;
+  // 6. Blocked: status in blocked_statuses OR configured blocked checkbox is true
+  let isBlocked = false;
+  if (
+    config.notion.blocked_statuses &&
+    config.notion.blocked_statuses.includes(statusName)
+  ) {
+    isBlocked = true;
+  }
   if (config.notion.properties.blocked) {
     const blockedProp = getProp(config.notion.properties.blocked);
-    if (blockedProp?.type === "checkbox") {
-      blocked = blockedProp.checkbox ? 1 : 0;
+    if (blockedProp?.type === "checkbox" && blockedProp.checkbox) {
+      isBlocked = true;
     }
   }
+  const blocked = isBlocked ? 1 : 0;
 
-  // 7. Blocker note (optional): join ALL plain_text segments
+  // 7. Blocker note: stored ONLY while blocked; otherwise null
   let blockerNote: string | null = null;
-  if (config.notion.properties.blocker_note) {
+  if (blocked === 1 && config.notion.properties.blocker_note) {
     const bnProp = getProp(config.notion.properties.blocker_note);
     if (bnProp?.type === "rich_text" && Array.isArray(bnProp.rich_text)) {
       const text = bnProp.rich_text
@@ -339,7 +522,42 @@ export function mapPage(
     }
   }
 
-  // 9. Archived
+  // 9. Priority rank: index of the option in schema's select options (0 = first)
+  let priorityRank: number | null = null;
+  if (config.notion.properties.priority) {
+    const priorityProp = getProp(config.notion.properties.priority);
+    if (priorityProp?.type === "select" && priorityProp.select?.name) {
+      const selectedName = priorityProp.select.name;
+      let options: string[] = [];
+      if (Array.isArray(schemaOrPriorityOptions)) {
+        options = schemaOrPriorityOptions;
+      } else if (
+        schemaOrPriorityOptions &&
+        typeof schemaOrPriorityOptions === "object" &&
+        "properties" in schemaOrPriorityOptions
+      ) {
+        const prop =
+          schemaOrPriorityOptions.properties?.[config.notion.properties.priority] ??
+          Object.values(schemaOrPriorityOptions.properties || {}).find(
+            (item) => item.name === config.notion.properties.priority
+          );
+        options = getPropOptions(prop);
+      }
+      const idx = options.indexOf(selectedName);
+      priorityRank = idx >= 0 ? idx : null;
+    }
+  }
+
+  // 10. Sort order: number or null
+  let sortOrder: number | null = null;
+  if (config.notion.properties.order) {
+    const orderProp = getProp(config.notion.properties.order);
+    if (orderProp?.type === "number" && typeof orderProp.number === "number") {
+      sortOrder = orderProp.number;
+    }
+  }
+
+  // 11. Archived
   const isArchived = Boolean(
     ("in_trash" in page && page.in_trash) || page.archived
   );
@@ -356,6 +574,8 @@ export function mapPage(
     blocked,
     blockerNote,
     isNext,
+    priorityRank,
+    sortOrder,
     url: page.url,
     archived,
     lastEditedTime: page.last_edited_time,
