@@ -11,9 +11,9 @@ notion:
     property: "Grup"
     equals: "Görev"
   properties:
-    title: "Name"
+    title: "Görev"
     status: "Durum"
-    department: "Departman"
+    department: "WP"
     blocker_note: "Engel"
     priority: "Öncelik"
     order: "Sıra"
@@ -37,26 +37,26 @@ drive:
 departments:
   - id: "00"
     name: "Koordinasyon"
-    notion_value: "00 Koordinasyon"
+    notion_value: "WP-00"
     drive_folder_id: "DRIVE_FOLDER_ID_HERE"
   - id: "01"
     name: "Avionik"
-    notion_value: "01 Avionik"
+    notion_value: "WP-01"
     drive_folder_id: "DRIVE_FOLDER_ID_HERE"
 
 doc_types:
-  test:
-    - "^NCR-"
-    - "^OI-"
-  report:
-    - "^HO-"
-    - "^CHG-"
-    - "^RB-"
-    - "^REQUIREMENTS_"
+  handoff:
+    - '^HO-\d'
+  change:
+    - '^CHG-\d'
+  ncr:
+    - '^NCR-\d'
+  open_issue:
+    - '^OI-\d'
+  requirement:
+    - '^RB-'
+    - '^REQUIREMENTS'
   decision:
-    - "^WP-.*_DECISION"
-
-milestones:
-  - id: m1
-    name: "İlk uçuş"
-    due: "2026-10-31"
+    - '_DECISION'
+  test:
+    - '(^|[_-])(TEST|ATP)'
