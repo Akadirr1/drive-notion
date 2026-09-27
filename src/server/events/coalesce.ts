@@ -21,3 +21,20 @@ export function shouldCoalesce(
   const diff = Math.abs(newTime - existingTime);
   return diff <= COALESCE_WINDOW_MS;
 }
+
+/**
+ * Returns the later of the existing and new occurredAt timestamps, never earlier.
+ */
+export function pickLaterOccurredAt(
+  existingOccurredAt: string,
+  newOccurredAt: string
+): string {
+  const existingTime = new Date(existingOccurredAt).getTime();
+  const newTime = new Date(newOccurredAt).getTime();
+
+  if (Number.isNaN(existingTime)) return newOccurredAt;
+  if (Number.isNaN(newTime)) return existingOccurredAt;
+
+  return newTime > existingTime ? newOccurredAt : existingOccurredAt;
+}
+

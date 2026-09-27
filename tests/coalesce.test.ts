@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { shouldCoalesce, COALESCE_WINDOW_MS } from "@/server/events/coalesce";
+import {
+  shouldCoalesce,
+  pickLaterOccurredAt,
+  COALESCE_WINDOW_MS,
+} from "@/server/events/coalesce";
 
 describe("shouldCoalesce pure function", () => {
   const baseTime = "2026-09-28T10:00:00.000Z";
@@ -33,3 +37,26 @@ describe("shouldCoalesce pure function", () => {
     expect(shouldCoalesce({ occurredAt: baseTime }, { occurredAt: "not-a-date" })).toBe(false);
   });
 });
+
+describe("pickLaterOccurredAt pure function", () => {
+  const t1 = "2026-09-28T10:00:00.000Z";
+  const t2 = "2026-09-28T10:15:00.000Z";
+
+  it("returns the new time when new time is later than existing", () => {
+    expect(pickLaterOccurredAt(t1, t2)).toBe(t2);
+  });
+
+  it("returns the existing time when new time is earlier than existing (never sets earlier)", () => {
+    expect(pickLaterOccurredAt(t2, t1)).toBe(t2);
+  });
+
+  it("returns the time when both times are identical", () => {
+    expect(pickLaterOccurredAt(t1, t1)).toBe(t1);
+  });
+
+  it("handles invalid dates safely without failing", () => {
+    expect(pickLaterOccurredAt(t1, "invalid")).toBe(t1);
+    expect(pickLaterOccurredAt("invalid", t2)).toBe(t2);
+  });
+});
+

@@ -382,6 +382,51 @@ describe("syncDrive and normalizePending offline integration tests", () => {
     expect(project[0].rawEventId).toBe(lastRaw.id);
   });
 
+  it("(4b) coalescing sets occurred_at to the later of existing and new time, never earlier", () => {
+    const db = createTestDb();
+
+    // Insert an existing project event at 10:20
+    db.insert(projectEvents)
+      .values({
+        id: 1,
+        type: "DOC_UPDATED",
+        departmentId: "01",
+        subjectTitle: "Report_v1.pdf",
+        detail: null,
+        docType: "report",
+        source: "drive",
+        sourceId: "file-001",
+        url: "https://drive.google.com/view/1",
+        occurredAt: "2026-09-10T10:20:00.000Z",
+        rawEventId: 10,
+      })
+      .run();
+
+    // Insert an unprocessed raw event occurring at 10:05 (within 30m window, but earlier than existing)
+    db.insert(rawEvents)
+      .values({
+        source: "drive",
+        kind: "doc:updated",
+        externalId: "file-001",
+        payload: JSON.stringify({
+          before: { name: "Report_old.pdf", departmentId: "01", docType: "report", webViewLink: "" },
+          after: { name: "Report_v2.pdf", departmentId: "01", docType: "report", webViewLink: "https://drive.google.com/view/1" },
+        }),
+        occurredAt: "2026-09-10T10:05:00.000Z",
+        ingestedAt: "2026-09-10T10:21:00.000Z",
+        processed: 0,
+      })
+      .run();
+
+    normalizePending(db);
+
+    const project = db.select().from(projectEvents).all();
+    expect(project).toHaveLength(1);
+    // occurredAt must remain 10:20 (the later time, never set earlier)
+    expect(project[0].occurredAt).toBe("2026-09-10T10:20:00.000Z");
+    expect(project[0].subjectTitle).toBe("Report_v2.pdf");
+  });
+
   it("(5) file missing from complete crawl → trashed = 1, no event", async () => {
     const db = createTestDb();
 
@@ -752,4 +797,73 @@ describe("syncDrive and normalizePending offline integration tests", () => {
     expect(project[0].subjectTitle).toBe("Hover_Test_Plan_WP-01.pdf");
     expect(project[0].occurredAt).toBe("2026-09-10T12:15:00.000Z");
   });
+
+  it("(12) file renamed with modifiedTime unchanged uses crawlTime as occurredAt and avoids unique key collision", async () => {
+    const db = createTestDb();
+
+    // 1. Seed
+    (listChildren as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      files: [
+        {
+          id: "doc-rename-02",
+          name: "Original_Name.pdf",
+          mimeType: "application/pdf",
+          parents: ["folder-01"],
+          createdTime: "2026-08-01T10:00:00.000Z",
+          modifiedTime: "2026-08-01T10:00:00.000Z",
+        },
+      ],
+    });
+    await syncDrive(db, mockDriveConfig);
+
+    // 2. Renamed, but modifiedTime remains 2026-08-01T10:00:00.000Z
+    (listChildren as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      files: [
+        {
+          id: "doc-rename-02",
+          name: "Renamed_Once.pdf",
+          mimeType: "application/pdf",
+          parents: ["folder-01"],
+          createdTime: "2026-08-01T10:00:00.000Z",
+          modifiedTime: "2026-08-01T10:00:00.000Z",
+        },
+      ],
+    });
+    await syncDrive(db, mockDriveConfig);
+
+    const raw1 = db.select().from(rawEvents).all();
+    expect(raw1).toHaveLength(1);
+    expect(raw1[0].kind).toBe("doc:updated");
+    // occurredAt must NOT be the old 2026-08-01 modifiedTime; it must be the crawl time (recent)
+    expect(raw1[0].occurredAt).not.toBe("2026-08-01T10:00:00.000Z");
+    const occurredAtFirstRename = raw1[0].occurredAt;
+
+    // Small delay to ensure next crawl gets distinct ISO timestamp
+    await new Promise((r) => setTimeout(r, 10));
+
+    // 3. Renamed again in a subsequent crawl, still with unchanged modifiedTime
+    (listChildren as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      files: [
+        {
+          id: "doc-rename-02",
+          name: "Renamed_Twice.pdf",
+          mimeType: "application/pdf",
+          parents: ["folder-01"],
+          createdTime: "2026-08-01T10:00:00.000Z",
+          modifiedTime: "2026-08-01T10:00:00.000Z",
+        },
+      ],
+    });
+    await syncDrive(db, mockDriveConfig);
+
+    const raw2 = db.select().from(rawEvents).all();
+    expect(raw2).toHaveLength(2);
+    expect(raw2[1].occurredAt).not.toBe(occurredAtFirstRename);
+
+    normalizePending(db);
+    const project = db.select().from(projectEvents).all();
+    expect(project).toHaveLength(1);
+    expect(project[0].subjectTitle).toBe("Renamed_Twice.pdf");
+  });
 });
+

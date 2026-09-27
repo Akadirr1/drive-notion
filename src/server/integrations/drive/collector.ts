@@ -46,6 +46,7 @@ export async function syncDrive(
     const isSeed = !state || state.seeded === 0;
 
     // 3. BFS crawl - in-memory collection
+    const crawlTime = new Date().toISOString();
     const queue: string[] = [config.drive.root_folder_id];
     const visitedFolders = new Set<string>();
     const allItems: DriveFileItem[] = [];
@@ -104,7 +105,7 @@ export async function syncDrive(
         const silent = isSilentFile(item, config);
         const existing = existingMap.get(item.id) ?? null;
 
-        const events = isSeed ? [] : diffFile(existing, snapshot, silent);
+        const events = isSeed ? [] : diffFile(existing, snapshot, silent, crawlTime);
 
         tx.insert(driveFiles)
           .values(snapshot)

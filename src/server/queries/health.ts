@@ -29,7 +29,7 @@ export interface HealthPayload {
 /** Row type inferred from the Drizzle schema. */
 export type SyncStateRow = typeof syncState.$inferSelect;
 
-const STALE_THRESHOLD_MS = 30 * 60 * 1000;
+export const STALE_THRESHOLD_MS = 30 * 60 * 1000;
 
 function isStale(isoTimestamp: string | null, now: Date, maxAgeMs = STALE_THRESHOLD_MS): boolean {
   if (!isoTimestamp) return true;

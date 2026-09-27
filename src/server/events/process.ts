@@ -2,7 +2,7 @@ import { eq, asc, desc, and, inArray } from "drizzle-orm";
 import type { WriterDb } from "@/server/db/client";
 import { rawEvents, projectEvents } from "@/server/db/schema";
 import { normalizeRawEvent } from "./normalize";
-import { shouldCoalesce } from "./coalesce";
+import { shouldCoalesce, pickLaterOccurredAt } from "./coalesce";
 
 /**
  * Reads unprocessed raw events, normalizes each via normalizeRawEvent(),
@@ -41,7 +41,7 @@ export function normalizePending(db: WriterDb): void {
           if (existing && shouldCoalesce(existing, raw)) {
             tx.update(projectEvents)
               .set({
-                occurredAt: normalized.occurredAt,
+                occurredAt: pickLaterOccurredAt(existing.occurredAt, normalized.occurredAt),
                 rawEventId: normalized.rawEventId,
                 subjectTitle: normalized.subjectTitle,
                 departmentId: normalized.departmentId,

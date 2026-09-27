@@ -1,6 +1,4 @@
-import type { HealthPayload } from '@/server/queries/health';
-
-const STALE_THRESHOLD_MS = 30 * 60 * 1000;
+import { STALE_THRESHOLD_MS, type HealthPayload } from '@/server/queries/health';
 
 const TURKISH_MONTHS = [
   'Ocak',

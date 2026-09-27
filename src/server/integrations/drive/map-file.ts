@@ -197,7 +197,8 @@ export function buildAfterPayload(snapshot: DriveFileSnapshot): DocAfterPayload 
 export function diffFile(
   before: DriveFileSnapshot | null,
   after: DriveFileSnapshot,
-  silent: boolean
+  silent: boolean,
+  crawlTime?: string
 ): RawEventDescriptor[] {
   if (silent || after.isFolder === 1 || after.trashed === 1) {
     return [];
@@ -225,6 +226,11 @@ export function diffFile(
 
   // Existing file modified or renamed
   if (before.name !== after.name || before.modifiedTime !== after.modifiedTime) {
+    const isRenameOnly =
+      before.name !== after.name && before.modifiedTime === after.modifiedTime;
+    const occurredAt =
+      isRenameOnly && crawlTime ? crawlTime : after.modifiedTime;
+
     return [
       {
         kind: "doc:updated",
@@ -233,7 +239,7 @@ export function diffFile(
           before: buildAfterPayload(before),
           after: buildAfterPayload(after),
         } satisfies DocEventPayload),
-        occurredAt: after.modifiedTime,
+        occurredAt,
       },
     ];
   }

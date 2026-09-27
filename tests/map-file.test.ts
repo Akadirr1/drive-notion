@@ -226,7 +226,50 @@ describe("Drive mapFile & diffFile pure functions", () => {
       expect(payload.after).toEqual(buildAfterPayload(updatedSnapshot));
     });
 
-    it("emits doc:updated when file is renamed (name changes)", () => {
+    it("emits doc:updated with crawlTime when file is renamed (only name changes)", () => {
+      const renamedSnapshot: DriveFileSnapshot = {
+        ...baseSnapshot,
+        name: "Test_Plan_v2.pdf",
+      };
+      const crawlTime = "2026-09-28T01:15:00.000Z";
+
+      const events = diffFile(baseSnapshot, renamedSnapshot, false, crawlTime);
+      expect(events).toHaveLength(1);
+      expect(events[0].kind).toBe("doc:updated");
+      expect(events[0].externalId).toBe("file-100");
+      expect(events[0].occurredAt).toBe(crawlTime);
+
+      const payload = JSON.parse(events[0].payload);
+      expect(payload.before.name).toBe("Test_Plan.pdf");
+      expect(payload.after.name).toBe("Test_Plan_v2.pdf");
+    });
+
+    it("emits doc:updated with modifiedTime when modifiedTime changed, even if crawlTime is provided", () => {
+      const updatedSnapshot: DriveFileSnapshot = {
+        ...baseSnapshot,
+        modifiedTime: "2026-09-10T10:30:00.000Z",
+      };
+      const crawlTime = "2026-09-28T01:15:00.000Z";
+
+      const events = diffFile(baseSnapshot, updatedSnapshot, false, crawlTime);
+      expect(events).toHaveLength(1);
+      expect(events[0].occurredAt).toBe("2026-09-10T10:30:00.000Z");
+    });
+
+    it("emits doc:updated with modifiedTime when both name and modifiedTime change", () => {
+      const changedSnapshot: DriveFileSnapshot = {
+        ...baseSnapshot,
+        name: "Test_Plan_v3.pdf",
+        modifiedTime: "2026-09-10T11:00:00.000Z",
+      };
+      const crawlTime = "2026-09-28T01:15:00.000Z";
+
+      const events = diffFile(baseSnapshot, changedSnapshot, false, crawlTime);
+      expect(events).toHaveLength(1);
+      expect(events[0].occurredAt).toBe("2026-09-10T11:00:00.000Z");
+    });
+
+    it("falls back to after.modifiedTime when only name changed but crawlTime is omitted", () => {
       const renamedSnapshot: DriveFileSnapshot = {
         ...baseSnapshot,
         name: "Test_Plan_v2.pdf",
@@ -234,12 +277,7 @@ describe("Drive mapFile & diffFile pure functions", () => {
 
       const events = diffFile(baseSnapshot, renamedSnapshot, false);
       expect(events).toHaveLength(1);
-      expect(events[0].kind).toBe("doc:updated");
-      expect(events[0].externalId).toBe("file-100");
-
-      const payload = JSON.parse(events[0].payload);
-      expect(payload.before.name).toBe("Test_Plan.pdf");
-      expect(payload.after.name).toBe("Test_Plan_v2.pdf");
+      expect(events[0].occurredAt).toBe(baseSnapshot.modifiedTime);
     });
 
     it("emits no event when file is silent", () => {
