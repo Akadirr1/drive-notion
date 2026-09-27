@@ -119,29 +119,6 @@
   }
 }
 
-:root[data-theme='dark'],
-:root.dark,
-.dark {
-  --ground: #12171C;
-  --panel: #1A2027;
-  --rule: #2A323A;
-  --ink: #E6EAEE;
-  --ink-muted: #9AA5AF;
-  --go: #3FBF74;
-  --caution: #F2B233;
-  --caution-tint: #3A2E10;
-  --warning: #FF6B6B;
-  --warning-tint: #3D1A1A;
-  --progress: #6B9BFF;
-}
-
-html.dark,
-body.dark,
-[data-theme='dark'] {
-  background-color: var(--ground);
-  color: var(--ink);
-}
-
 /* ─── Base styles (DESIGN.md → Typography, Shape) ─── */
 
 html {
@@ -181,11 +158,4 @@ body {
   height: 100%;
   border-radius: 3px;
   background-color: var(--color-progress);
-}
-
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }

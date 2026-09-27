@@ -53,5 +53,7 @@ Phase 3 (Dashboard v1 on Notion Data) is complete on branch `feat/phase-3-dashbo
 
 - `/departman/[id]` and `/aktivite` are dead links until Phase 6; Annunciator tiles temporarily link to each department's Google Drive folder, and the Event Feed temporarily omits the "Tümünü gör" link.
 - `bumin_last_visit` cookie marks feed events with a black dot if they were ingested after the user's previous visit.
-- Sync stale threshold is 30 minutes. If worker or Notion source hasn't had a successful sync in 30 minutes, the caution banner is rendered at the top of the dashboard.
 - The web app never writes to SQLite; it only reads via `src/server/queries/dashboard.ts` and `src/server/queries/health.ts`.
+- Phase 1 change in `src/server/db/client.ts`: `getReaderDb()` checks file existence before returning the cached reader instance, and explicitly closes the old SQLite connection (`readerDb.$client.close()`) if the database file has disappeared from disk.
+- Event feed timestamp tooltips use `formatDateTimeTurkish` ("27 Eylül 14:32") in the project timezone rather than raw ISO timestamps per `DESIGN.md`. Dark mode strictly follows `prefers-color-scheme`.
+

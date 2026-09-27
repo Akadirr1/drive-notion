@@ -14,13 +14,7 @@ import { EventFeed } from '@/components/dashboard/event-feed';
 
 export const dynamic = 'force-dynamic';
 
-interface PageProps {
-  searchParams?: Promise<{ theme?: string }>;
-}
-
-export default async function DashboardPage({ searchParams }: PageProps) {
-  const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const isDark = resolvedSearchParams?.theme === 'dark';
+export default async function DashboardPage() {
 
   // 1. Load config safely
   let config;
@@ -92,17 +86,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   }));
 
   return (
-    <main
-      className={isDark ? 'dark' : undefined}
-      data-theme={isDark ? 'dark' : undefined}
-    >
-      {isDark && (
-        <script
-          dangerouslySetInnerHTML={{
-            __html: "document.documentElement.classList.add('dark');",
-          }}
-        />
-      )}
+    <main>
       <ClientVisitManager />
       <StaleBanner
         ok={health.ok}

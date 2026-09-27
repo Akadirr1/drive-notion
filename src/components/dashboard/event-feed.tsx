@@ -6,7 +6,7 @@ import {
   OctagonAlert,
   Play,
 } from 'lucide-react';
-import { relativeTime } from '@/lib/format';
+import { formatDateTimeTurkish, relativeTime } from '@/lib/format';
 
 export interface FeedEvent {
   id: number;
@@ -72,10 +72,10 @@ export function EventFeed({ events }: EventFeedProps) {
                   </div>
                 )}
 
-                {/* Relative time with ISO title */}
+                {/* Relative time with Turkish datetime tooltip */}
                 <div
                   className="text-[13px] text-ink-muted tabular-nums shrink-0 text-right min-w-[48px]"
-                  title={event.occurredAt}
+                  title={formatDateTimeTurkish(event.occurredAt)}
                 >
                   {relativeTime(event.occurredAt)}
                 </div>

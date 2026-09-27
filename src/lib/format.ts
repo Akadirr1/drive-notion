@@ -104,3 +104,47 @@ export function formatDeadline(deadline: string, deliverable: string, now: Date 
   const formattedDate = formatDateTurkish(deadline, now);
   return `${formattedDate}, ${deliverable}`;
 }
+
+/**
+ * Format an ISO timestamp as Turkish date and time in a given timezone:
+ * e.g. "27 Eylül 14:32", or "27 Eylül 2025 14:32" if year differs from now.
+ * Never shows raw ISO timestamp per DESIGN.md.
+ */
+export function formatDateTimeTurkish(
+  isoTimestamp: string,
+  timezone: string = 'Europe/Istanbul',
+  now: Date = new Date()
+): string {
+  const date = new Date(isoTimestamp);
+
+  const yearFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+  });
+  const dateYear = parseInt(yearFormatter.format(date), 10);
+  const currentYear = parseInt(yearFormatter.format(now), 10);
+
+  if (dateYear !== currentYear) {
+    const formatter = new Intl.DateTimeFormat('tr-TR', {
+      timeZone: timezone,
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    });
+    return formatter.format(date);
+  }
+
+  const formatter = new Intl.DateTimeFormat('tr-TR', {
+    timeZone: timezone,
+    day: 'numeric',
+    month: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  return formatter.format(date);
+}
+

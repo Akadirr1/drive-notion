@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatDateTimeTurkish,
   formatDateTurkish,
   formatDeadline,
   relativeTime,
@@ -87,3 +88,25 @@ describe('formatDeadline', () => {
     );
   });
 });
+
+describe('formatDateTimeTurkish', () => {
+  const baseNow = new Date('2026-09-28T12:00:00.000Z');
+
+  it('formats timestamp in project timezone for current year without year', () => {
+    // 11:32 UTC = 14:32 in Europe/Istanbul (+3)
+    const iso = '2026-09-27T11:32:00.000Z';
+    expect(formatDateTimeTurkish(iso, 'Europe/Istanbul', baseNow)).toBe('27 Eylül 14:32');
+  });
+
+  it('formats timestamp in different year with year', () => {
+    const iso = '2025-09-27T11:32:00.000Z';
+    expect(formatDateTimeTurkish(iso, 'Europe/Istanbul', baseNow)).toBe('27 Eylül 2025 14:32');
+  });
+
+  it('handles custom timezone correctly', () => {
+    // 11:32 UTC = 11:32 in UTC
+    const iso = '2026-09-27T11:32:00.000Z';
+    expect(formatDateTimeTurkish(iso, 'UTC', baseNow)).toBe('27 Eylül 11:32');
+  });
+});
+

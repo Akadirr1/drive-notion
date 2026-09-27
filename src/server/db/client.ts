@@ -53,7 +53,14 @@ export function getWriterDb(): WriterDb {
 export function getReaderDb(): WriterDb | null {
   const dbPath = getDbPath();
   if (!fs.existsSync(dbPath)) {
-    readerDb = null;
+    if (readerDb) {
+      try {
+        readerDb.$client.close();
+      } catch {
+        // ignore error if already closed
+      }
+      readerDb = null;
+    }
     return null;
   }
 
