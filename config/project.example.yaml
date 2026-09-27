@@ -7,22 +7,29 @@ project:
 
 notion:
   tasks_data_source_id: "NOTION_DATA_SOURCE_ID_HERE"
+  row_filter:
+    property: "Grup"
+    equals: "Görev"
   properties:
     title: "Name"
     status: "Durum"
     department: "Departman"
-    due: "Tarih"
-    blocked: "Tıkalı"
-    blocker_note: "Neden"
-    milestone: "Milestone"
-    next: "Sıradaki"
+    blocker_note: "Engel"
+    priority: "Öncelik"
+    order: "Sıra"
+  blocked_statuses:
+    - "BLOKE"
   status_groups:
     todo:
-      - "Yapılacak"
+      - "BAŞLANMADI"
+      - "HAZIR"
     active:
-      - "Devam ediyor"
+      - "AKTİF"
+      - "BLOKE"
+      - "DOĞRULAMAYA HAZIR"
     done:
-      - "Tamamlandı"
+      - "DOĞRULANDI"
+      - "KAPALI"
 
 drive:
   root_folder_id: "DRIVE_ROOT_FOLDER_ID_HERE"
@@ -39,15 +46,17 @@ departments:
 
 doc_types:
   test:
-    - "test"
+    - "^NCR-"
+    - "^OI-"
   report:
-    - "rapor"
-    - "report"
+    - "^HO-"
+    - "^CHG-"
+    - "^RB-"
+    - "^REQUIREMENTS_"
   decision:
-    - "karar"
+    - "^WP-.*_DECISION"
 
 milestones:
   - id: m1
     name: "İlk uçuş"
     due: "2026-10-31"
-    notion_value: "M1"

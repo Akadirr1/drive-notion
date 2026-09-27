@@ -90,19 +90,26 @@ project:
 
 notion:
   tasks_data_source_id: "..."
+  row_filter:                  # optional query filter passed on every page
+    property: "Grup"
+    equals: "Görev"
   properties:
     title: "Name"
-    status: "Durum"            # Notion status property
+    status: "Durum"            # Notion status or select property
     department: "Departman"    # select, values match departments[].notion_value
     due: "Tarih"               # optional, date
     blocked: "Tıkalı"          # optional, checkbox
-    blocker_note: "Neden"      # optional, text
+    blocker_note: "Engel"      # optional, text; stored only while blocked
     milestone: "Milestone"     # optional, select
     next: "Sıradaki"           # optional, checkbox that pins the next action
-  status_groups:               # optional; if omitted, use the status property's built-in Notion groups
-    todo: ["Yapılacak"]
-    active: ["Devam ediyor"]
-    done: ["Tamamlandı"]
+    priority: "Öncelik"        # optional, select (P0-Kritik … P3-Sonra)
+    order: "Sıra"              # optional, number
+  blocked_statuses:            # optional; status values that mark a task as blocked
+    - "BLOKE"
+  status_groups:               # required if status is select; optional override if status is status
+    todo: ["BAŞLANMADI", "HAZIR"]
+    active: ["AKTİF", "BLOKE", "DOĞRULAMAYA HAZIR"]
+    done: ["DOĞRULANDI", "KAPALI"]
 
 drive:
   root_folder_id: "..."
@@ -113,10 +120,10 @@ departments:
     notion_value: "00 Koordinasyon"
     drive_folder_id: "..."
 
-doc_types:                     # first match on lowercased file name wins; otherwise "other"
-  test: ["test"]
-  report: ["rapor", "report"]
-  decision: ["karar"]
+doc_types:                     # case-insensitive regular expressions tested against file name; first match wins in config order; otherwise "other"
+  test: ["^NCR-", "^OI-"]
+  report: ["^HO-", "^CHG-", "^RB-", "^REQUIREMENTS_"]
+  decision: ["^WP-.*_DECISION"]
 
 milestones:                    # ordered
   - id: m1
@@ -143,7 +150,7 @@ TZ=Europe/Istanbul
   The `worker` row stores the heartbeat timestamp in `last_success_at`; other fields are unused for it.
 
 `notion_tasks` (snapshot)
-- `page_id` PK, `title`, `status`, `status_group` (`todo` | `active` | `done`), `department_id` (nullable), `milestone_id`, `due_date`, `blocked` (bool), `blocker_note`, `is_next` (bool), `url`, `archived` (bool), `last_edited_time`
+- `page_id` PK, `title`, `status`, `status_group` (`todo` | `active` | `done`), `department_id` (nullable), `milestone_id`, `due_date`, `blocked` (bool), `blocker_note`, `is_next` (bool), `priority_rank` (integer, nullable), `sort_order` (real, nullable), `url`, `archived` (bool), `last_edited_time`
 
 `drive_files` (snapshot, folders included)
 - `file_id` PK, `name`, `mime_type`, `is_folder`, `parent_id`, `department_id`, `doc_type`, `created_time`, `modified_time`, `web_view_link`, `trashed` (bool)
@@ -172,8 +179,14 @@ Log one JSON line per step with duration, counts and errors.
 ## Notion sync
 
 - Every sync does a full fetch (no cursor filter). The database is small (a few hundred pages); the query endpoint does not return trashed pages, so full fetch is needed to detect deletions.
+- If `config.notion.row_filter` is configured, `{ property, select: { equals } }` is passed as query filter on every page of the fetch. A row that leaves the filter is no longer returned and gets archived (`archived = 1`, no event) by the complete-fetch archival rule.
 - At the start of each sync, retrieve the data source schema with `dataSources.retrieve()`. Validate that every property named in `config.notion.properties` exists in the schema with the expected type. Fail with a readable error if not.
-- Status groups are always derived from the status property schema by position: first group → `todo`, second → `active`, third → `done`. If `config.notion.status_groups` is defined, it overrides only the options it lists; a status value it does not list falls back to its schema-derived group with a warning, never silently to "todo".
+- Status property accepts type `"status"` or `"select"`.
+  - For `"select"`: `config.notion.status_groups` is required, and every option of the select must appear in exactly one group. An unlisted or duplicated option fails with a readable error naming the option(s) and `config/project.yaml`. A listed value that is not an option only logs a warning.
+  - For `"status"`: groups are derived from the status property schema by position: first group → `todo`, second → `active`, third → `done`. If `config.notion.status_groups` is defined, it overrides only the options it lists; an unlisted option falls back to schema group with a warning.
+- `mapPage` reads `.select.name` or `.status.name` depending on type. An empty status maps to `"todo"` without a warning.
+- `blocked = 1` when the status is in `config.notion.blocked_statuses` or when a configured blocked checkbox is true. Every listed value in `blocked_statuses` must be a valid status option, else a readable error. `blockerNote` is stored only while blocked; otherwise null.
+- `priority_rank` stores the 0-based index of the option in schema select options. `sort_order` stores the numeric order. `diffTask` treats priority/order updates as changes (snapshot update, no event).
 - Map properties through `config.notion.properties`. Compare each page with its snapshot. Only an actual field change produces a raw event.
 - Raw event kinds encode the new value (e.g. `status:active`, `blocked:true`) so the unique constraint cannot swallow a second change within the same minute.
 - First full sync is a seed: fill snapshots, set `seeded`, emit no semantic events.
@@ -187,7 +200,7 @@ Log one JSON line per step with duration, counts and errors.
 - New file → `DOC_CREATED`. Known file with a newer `modifiedTime` → `DOC_UPDATED`.
 - Coalescing: if the same file already has a `DOC_CREATED` or `DOC_UPDATED` within the last 30 minutes, move that event's `occurred_at` forward instead of inserting a new one. Ten saves in a row must show up as one line.
 - Folders never produce events. Trashed files: set `trashed`, no event.
-- `doc_type` from `config.doc_types`, first match wins, else `other`.
+- `doc_type` from `config.doc_types`: case-insensitive regular expressions tested against the file name; first match wins in config order, else `other`.
 - Phase 4 must start by running `scripts/smoke-drive.ts` to prove that files inside the shared folder are listed for the service account. Fallback if not: an OAuth refresh token for the owner's account with the same read-only scope.
 
 ## Normalizer
@@ -213,9 +226,9 @@ Department status, in priority order:
 4. `ok`: otherwise
 
 Next action:
-1. A non-done task with `is_next = true` (earliest due first)
-2. Else the earliest-due `active` task that is not blocked
-3. Else the earliest-due `todo` task
+1. The `is_next` task first
+2. Else the non-blocked `active` task ordered by `priority_rank`, then `sort_order`, then due date (nulls last in each)
+3. Else the `todo` task with the same ordering
 4. Else none (empty state)
 
 Progress:

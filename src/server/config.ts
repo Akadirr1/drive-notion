@@ -21,6 +21,8 @@ const notionPropertiesSchema = z.object({
   blocker_note: z.string().optional(),
   milestone: z.string().optional(),
   next: z.string().optional(),
+  priority: z.string().optional(),
+  order: z.string().optional(),
 });
 
 const statusGroupsSchema = z
@@ -31,9 +33,18 @@ const statusGroupsSchema = z
   })
   .optional();
 
+const rowFilterSchema = z
+  .object({
+    property: z.string(),
+    equals: z.string(),
+  })
+  .optional();
+
 const notionSchema = z.object({
   tasks_data_source_id: z.string().min(1, "notion.tasks_data_source_id is required"),
+  row_filter: rowFilterSchema,
   properties: notionPropertiesSchema,
+  blocked_statuses: z.array(z.string()).optional(),
   status_groups: statusGroupsSchema,
 });
 
@@ -55,7 +66,22 @@ const milestoneSchema = z.object({
   notion_value: z.string().optional(),
 });
 
-const docTypesSchema = z.record(z.string(), z.array(z.string()));
+const docTypesSchema = z
+  .record(z.string(), z.array(z.string()))
+  .superRefine((val, ctx) => {
+    for (const [docType, patterns] of Object.entries(val)) {
+      for (const pattern of patterns) {
+        try {
+          new RegExp(pattern, "i");
+        } catch (err) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Invalid regular expression for doc_type "${docType}": "${pattern}" (${err instanceof Error ? err.message : String(err)})`,
+          });
+        }
+      }
+    }
+  });
 
 export const projectConfigSchema = z.object({
   project: projectSchema,

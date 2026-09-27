@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, unique } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, unique } from "drizzle-orm/sqlite-core";
 
 export const syncState = sqliteTable("sync_state", {
   source: text("source").primaryKey(),
@@ -20,6 +20,8 @@ export const notionTasks = sqliteTable("notion_tasks", {
   blocked: integer("blocked").notNull().default(0),
   blockerNote: text("blocker_note"),
   isNext: integer("is_next").notNull().default(0),
+  priorityRank: integer("priority_rank"),
+  sortOrder: real("sort_order"),
   url: text("url").notNull(),
   archived: integer("archived").notNull().default(0),
   lastEditedTime: text("last_edited_time").notNull(),

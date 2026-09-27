@@ -4,19 +4,23 @@ import {
   validateSchema,
   deriveStatusGroups,
   resolveStatusGroup,
+  buildRowFilter,
   PropertyConfigError,
 } from "@/server/integrations/notion/map-page";
-import { diffTask } from "@/server/integrations/notion/diff-task";
+import { diffTask, hasTaskChanged } from "@/server/integrations/notion/diff-task";
 import {
   testProjectConfig,
   validDataSourceSchema,
   schemaWithWrongType,
   schemaMissingRequired,
   pageFixtures,
+  buminProjectConfig,
+  buminDataSourceSchema,
+  buminPageFixtures,
 } from "./fixtures/notion-pages";
 
 describe("validateSchema", () => {
-  it("passes without error for a valid schema", () => {
+  it("passes without error for a valid schema with status property", () => {
     expect(() =>
       validateSchema(validDataSourceSchema, testProjectConfig)
     ).not.toThrow();
@@ -43,8 +47,8 @@ describe("validateSchema", () => {
     try {
       validateSchema(schemaWithWrongType, testProjectConfig);
     } catch (err: unknown) {
-      expect((err as Error).message).toContain("expected type \"status\"");
-      expect((err as Error).message).toContain("found \"select\"");
+      expect((err as Error).message).toContain("expected type \"status\" or \"select\"");
+      expect((err as Error).message).toContain("found \"number\"");
     }
   });
 
@@ -69,6 +73,142 @@ describe("validateSchema", () => {
       validateSchema(schemaWithoutOptional, testProjectConfig)
     ).not.toThrow();
   });
+
+  it("select status with full groups passes", () => {
+    expect(() =>
+      validateSchema(buminDataSourceSchema, buminProjectConfig)
+    ).not.toThrow();
+  });
+
+  it("select without status_groups fails", () => {
+    const configWithoutGroups = {
+      ...buminProjectConfig,
+      notion: {
+        ...buminProjectConfig.notion,
+        status_groups: undefined,
+      },
+    };
+
+    expect(() =>
+      validateSchema(buminDataSourceSchema, configWithoutGroups)
+    ).toThrowError(PropertyConfigError);
+
+    try {
+      validateSchema(buminDataSourceSchema, configWithoutGroups);
+    } catch (err: unknown) {
+      expect((err as Error).message).toContain("notion.status_groups is required");
+      expect((err as Error).message).toContain("config/project.yaml");
+    }
+  });
+
+  it("an unlisted option fails and is named", () => {
+    const configWithUnlisted = {
+      ...buminProjectConfig,
+      notion: {
+        ...buminProjectConfig.notion,
+        status_groups: {
+          todo: ["BAŞLANMADI", "HAZIR"],
+          active: ["AKTİF", "BLOKE", "DOĞRULAMAYA HAZIR"],
+          done: ["DOĞRULANDI"], // "KAPALI" omitted
+        },
+      },
+    };
+
+    expect(() =>
+      validateSchema(buminDataSourceSchema, configWithUnlisted)
+    ).toThrowError(PropertyConfigError);
+
+    try {
+      validateSchema(buminDataSourceSchema, configWithUnlisted);
+    } catch (err: unknown) {
+      expect((err as Error).message).toContain("KAPALI");
+      expect((err as Error).message).toContain("config/project.yaml");
+    }
+  });
+
+  it("a duplicated option fails and is named", () => {
+    const configWithDuplicated = {
+      ...buminProjectConfig,
+      notion: {
+        ...buminProjectConfig.notion,
+        status_groups: {
+          todo: ["BAŞLANMADI", "HAZIR", "AKTİF"], // AKTİF duplicated in todo and active
+          active: ["AKTİF", "BLOKE", "DOĞRULAMAYA HAZIR"],
+          done: ["DOĞRULANDI", "KAPALI"],
+        },
+      },
+    };
+
+    expect(() =>
+      validateSchema(buminDataSourceSchema, configWithDuplicated)
+    ).toThrowError(PropertyConfigError);
+
+    try {
+      validateSchema(buminDataSourceSchema, configWithDuplicated);
+    } catch (err: unknown) {
+      expect((err as Error).message).toContain("AKTİF");
+      expect((err as Error).message).toContain("config/project.yaml");
+    }
+  });
+
+  it("an unknown blocked_statuses value fails", () => {
+    const configWithBadBlocked = {
+      ...buminProjectConfig,
+      notion: {
+        ...buminProjectConfig.notion,
+        blocked_statuses: ["NONEXISTENT_STATUS"],
+      },
+    };
+
+    expect(() =>
+      validateSchema(buminDataSourceSchema, configWithBadBlocked)
+    ).toThrowError(PropertyConfigError);
+
+    try {
+      validateSchema(buminDataSourceSchema, configWithBadBlocked);
+    } catch (err: unknown) {
+      expect((err as Error).message).toContain("NONEXISTENT_STATUS");
+      expect((err as Error).message).toContain("config/project.yaml");
+    }
+  });
+
+  it("row_filter with a missing property, wrong type or unknown option fails", () => {
+    // 1. Missing property
+    const configMissingFilterProp = {
+      ...buminProjectConfig,
+      notion: {
+        ...buminProjectConfig.notion,
+        row_filter: { property: "NonExistentProp", equals: "Görev" },
+      },
+    };
+    expect(() =>
+      validateSchema(buminDataSourceSchema, configMissingFilterProp)
+    ).toThrowError(/NonExistentProp.*config\/project\.yaml/);
+
+    // 2. Wrong type
+    const configWrongTypeFilterProp = {
+      ...buminProjectConfig,
+      notion: {
+        ...buminProjectConfig.notion,
+        row_filter: { property: "Engel", equals: "Görev" }, // Engel is rich_text, not select
+      },
+    };
+    expect(() =>
+      validateSchema(buminDataSourceSchema, configWrongTypeFilterProp)
+    ).toThrowError(/expected type "select" but found "rich_text"/);
+
+    // 3. Unknown option
+    const configUnknownOptionFilterProp = {
+      ...buminProjectConfig,
+      notion: {
+        ...buminProjectConfig.notion,
+        row_filter: { property: "Grup", equals: "UnknownGroup" },
+      },
+    };
+    expect(() =>
+      validateSchema(buminDataSourceSchema, configUnknownOptionFilterProp)
+    ).toThrowError(/UnknownGroup.*config\/project\.yaml/);
+  });
 });
 
 describe("deriveStatusGroups", () => {
@@ -78,6 +218,11 @@ describe("deriveStatusGroups", () => {
     expect(groups.get("Planlandı")).toBe("todo");
     expect(groups.get("Devam ediyor")).toBe("active");
     expect(groups.get("Tamamlandı")).toBe("done");
+  });
+
+  it("returns empty map for select status property", () => {
+    const groups = deriveStatusGroups(buminDataSourceSchema, "Durum");
+    expect(groups.size).toBe(0);
   });
 });
 
@@ -154,6 +299,26 @@ describe("resolveStatusGroup (Amendment B)", () => {
       fallback: "todo",
     });
   });
+
+  it("empty status maps to todo without a warning", () => {
+    const warn = vi.fn();
+    expect(resolveStatusGroup("", schemaGroups, undefined, warn)).toBe("todo");
+    expect(resolveStatusGroup("", schemaGroups, { todo: ["A"] }, warn)).toBe("todo");
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("buildRowFilter", () => {
+  it("builds query filter when row_filter is provided", () => {
+    expect(buildRowFilter({ property: "Grup", equals: "Görev" })).toEqual({
+      property: "Grup",
+      select: { equals: "Görev" },
+    });
+  });
+
+  it("returns undefined when row_filter is not provided", () => {
+    expect(buildRowFilter(undefined)).toBeUndefined();
+  });
 });
 
 describe("mapPage", () => {
@@ -199,6 +364,8 @@ describe("mapPage", () => {
     expect(snapshot.blockerNote).toBeNull();
     expect(snapshot.milestoneId).toBeNull();
     expect(snapshot.isNext).toBe(0);
+    expect(snapshot.priorityRank).toBeNull();
+    expect(snapshot.sortOrder).toBeNull();
   });
 
   it("4. sets departmentId to null and warns on unknown department", () => {
@@ -237,6 +404,89 @@ describe("mapPage", () => {
     expect(snapshot.isNext).toBe(1);
     expect(snapshot.url).toBe("https://notion.so/page-standard");
     expect(snapshot.archived).toBe(0);
+  });
+
+  it("6. select status is read", () => {
+    const warn = vi.fn();
+    const buminSchemaGroups = new Map<string, "todo" | "active" | "done">();
+    const snapshot = mapPage(
+      buminPageFixtures.aktifPage,
+      buminProjectConfig,
+      buminSchemaGroups,
+      warn,
+      buminDataSourceSchema
+    );
+    expect(snapshot.status).toBe("AKTİF");
+    expect(snapshot.statusGroup).toBe("active");
+  });
+
+  it("7. Durum BLOKE → blocked = 1 with blockerNote", () => {
+    const warn = vi.fn();
+    const buminSchemaGroups = new Map<string, "todo" | "active" | "done">();
+    const snapshot = mapPage(
+      buminPageFixtures.blokePage,
+      buminProjectConfig,
+      buminSchemaGroups,
+      warn,
+      buminDataSourceSchema
+    );
+    expect(snapshot.status).toBe("BLOKE");
+    expect(snapshot.statusGroup).toBe("active");
+    expect(snapshot.blocked).toBe(1);
+    expect(snapshot.blockerNote).toBe("Motor sürücüsü arızalı, yenisi bekleniyor");
+  });
+
+  it("8. any other Durum → blocked = 0 and blockerNote null", () => {
+    const warn = vi.fn();
+    const buminSchemaGroups = new Map<string, "todo" | "active" | "done">();
+    const snapshot = mapPage(
+      buminPageFixtures.aktifPage,
+      buminProjectConfig,
+      buminSchemaGroups,
+      warn,
+      buminDataSourceSchema
+    );
+    expect(snapshot.status).toBe("AKTİF");
+    expect(snapshot.blocked).toBe(0);
+    expect(snapshot.blockerNote).toBeNull();
+  });
+
+  it("9. priority_rank and sort_order are mapped", () => {
+    const warn = vi.fn();
+    const buminSchemaGroups = new Map<string, "todo" | "active" | "done">();
+
+    // blokePage has Öncelik: "P0-Kritik" (index 0) and Sıra: 1
+    const snap1 = mapPage(
+      buminPageFixtures.blokePage,
+      buminProjectConfig,
+      buminSchemaGroups,
+      warn,
+      buminDataSourceSchema
+    );
+    expect(snap1.priorityRank).toBe(0);
+    expect(snap1.sortOrder).toBe(1);
+
+    // aktifPage has Öncelik: "P1-Yüksek" (index 1) and Sıra: 2.5
+    const snap2 = mapPage(
+      buminPageFixtures.aktifPage,
+      buminProjectConfig,
+      buminSchemaGroups,
+      warn,
+      buminDataSourceSchema
+    );
+    expect(snap2.priorityRank).toBe(1);
+    expect(snap2.sortOrder).toBe(2.5);
+
+    // baslanmadiPage has Öncelik: "P2-Normal" (index 2) and Sıra: 5
+    const snap3 = mapPage(
+      buminPageFixtures.baslanmadiPage,
+      buminProjectConfig,
+      buminSchemaGroups,
+      warn,
+      buminDataSourceSchema
+    );
+    expect(snap3.priorityRank).toBe(2);
+    expect(snap3.sortOrder).toBe(5);
   });
 });
 
@@ -329,5 +579,71 @@ describe("diffTask", () => {
     expect(payload.after.title).toBe(after.title);
     expect(payload.after.departmentId).toBe(after.departmentId);
     expect(payload.after.url).toBe(after.url);
+  });
+
+  it("9. AKTİF → BLOKE emits only blocked:true", () => {
+    const buminSchemaGroups = new Map<string, "todo" | "active" | "done">();
+    const aktifSnap = mapPage(
+      buminPageFixtures.aktifPage,
+      buminProjectConfig,
+      buminSchemaGroups,
+      warn,
+      buminDataSourceSchema
+    );
+    const blokeSnap = {
+      ...aktifSnap,
+      status: "BLOKE",
+      statusGroup: "active" as const,
+      blocked: 1,
+      blockerNote: "Motor sürücüsü arızalı",
+    };
+
+    const events = diffTask(aktifSnap, blokeSnap);
+    expect(events).toHaveLength(1);
+    expect(events[0].kind).toBe("blocked:true");
+    const payload = JSON.parse(events[0].payload);
+    expect(payload.after.blockerNote).toBe("Motor sürücüsü arızalı");
+  });
+
+  it("10. BAŞLANMADI → BLOKE emits status:active and blocked:true", () => {
+    const buminSchemaGroups = new Map<string, "todo" | "active" | "done">();
+    const baslanmadiSnap = mapPage(
+      buminPageFixtures.baslanmadiPage,
+      buminProjectConfig,
+      buminSchemaGroups,
+      warn,
+      buminDataSourceSchema
+    );
+    const blokeSnap = {
+      ...baslanmadiSnap,
+      status: "BLOKE",
+      statusGroup: "active" as const,
+      blocked: 1,
+      blockerNote: "Motor sürücüsü arızalı",
+    };
+
+    const events = diffTask(baslanmadiSnap, blokeSnap);
+    expect(events).toHaveLength(2);
+    expect(events.map((e) => e.kind)).toEqual(["status:active", "blocked:true"]);
+  });
+
+  it("11. a priority change emits nothing but counts as a change", () => {
+    const buminSchemaGroups = new Map<string, "todo" | "active" | "done">();
+    const snapBefore = mapPage(
+      buminPageFixtures.aktifPage,
+      buminProjectConfig,
+      buminSchemaGroups,
+      warn,
+      buminDataSourceSchema
+    );
+    const snapAfter = {
+      ...snapBefore,
+      priorityRank: (snapBefore.priorityRank ?? 0) + 1,
+    };
+
+    // Emits nothing
+    expect(diffTask(snapBefore, snapAfter)).toEqual([]);
+    // But counts as a change
+    expect(hasTaskChanged(snapBefore, snapAfter)).toBe(true);
   });
 });
