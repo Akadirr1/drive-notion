@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
 /*
  * shadcn generates an @theme inline block. Keep it and extend it.
@@ -10,8 +12,12 @@
   /* Font family — references the CSS variable set by next/font in layout.tsx */
   --font-sans: var(--font-atkinson), system-ui, sans-serif;
 
-  /* shadcn's own radius token — keep so shadcn components work */
+  /* shadcn radius scale tokens */
   --radius: 10px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
 
   /* ─── DESIGN.md color tokens (Tailwind utility generation) ─── */
   --color-ground: var(--ground);
@@ -65,6 +71,32 @@
   --warning: #B42323;
   --warning-tint: #FDE4E4;
   --progress: #2F66D0;
+
+  /* ─── Raw shadcn variables used directly by components ─── */
+  --background: var(--ground);
+  --foreground: var(--ink);
+  --card: var(--panel);
+  --card-foreground: var(--ink);
+  --popover: var(--panel);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--ground);
+  --secondary: var(--panel);
+  --secondary-foreground: var(--ink);
+  --muted: var(--panel);
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--panel);
+  --accent-foreground: var(--ink);
+  --destructive: var(--warning);
+  --destructive-foreground: var(--ground);
+  --border: var(--rule);
+  --input: var(--rule);
+  --ring: var(--progress);
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
 }
 
 /*

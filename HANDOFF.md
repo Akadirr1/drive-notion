@@ -36,3 +36,5 @@ Phase 1: Database and worker skeleton — schema, migrations, sync loop with syn
 - The owner fills `config/project.yaml` before Phase 2: Notion tasks data source ID and property names, Drive root folder ID, department folder IDs, milestones.
 - Before Phase 2: connect the Notion integration to the tasks database with read-content capability only.
 - Before Phase 4: share the BUMIN Drive root folder with the Google service account email as Viewer.
+- Phase 5: better-sqlite3 may compile from source; the Dockerfile builder stage needs python3, make and g++.
+

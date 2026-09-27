@@ -6,7 +6,7 @@ import { parse as parseYaml } from "yaml";
 
 const projectSchema = z.object({
   name: z.string(),
-  deadline: z.string().date("deadline must be a YYYY-MM-DD date string"),
+  deadline: z.iso.date("deadline must be a YYYY-MM-DD date string"),
   deliverable: z.string(),
   timezone: z.string(),
   stale_days: z.number().int().positive(),
@@ -51,7 +51,7 @@ const departmentSchema = z.object({
 const milestoneSchema = z.object({
   id: z.string(),
   name: z.string(),
-  due: z.string().date("milestone due must be a YYYY-MM-DD date string"),
+  due: z.iso.date("milestone due must be a YYYY-MM-DD date string"),
   notion_value: z.string().optional(),
 });
 
