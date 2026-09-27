@@ -219,21 +219,45 @@ Pure function from raw events (plus snapshot context) to project events. Stores 
 
 ## Derived logic (`src/server/domain`)
 
-Department status, in priority order:
+Pure functions, fully unit-tested with fixture data. Never imported by UI code directly; pages read through `src/server/queries/`.
+
+### Department status
+
+Departments are the 17 work packages (WP-00 … WP-16). Status is computed per-department from `notion_tasks` where `archived = 0`, in priority order:
+
 1. `blocked`: at least one non-done task with `blocked = true`
-2. `idle`: no `todo` or `active` tasks
-3. `stale`: has active tasks and no project event for the department in `stale_days`
-4. `ok`: otherwise
+2. `stale`: has `active` tasks and no activity in `stale_days`. Latest activity is `max(latest_event_at, max_last_edited_time)` among the department's non-archived tasks.
+3. `active`: has at least one `active` (non-blocked) task
+4. `waiting`: some tasks are `done`, the rest are `todo` (none `active`)
+5. `not_started`: all tasks are `todo` (none `done`, none `active`)
+6. `done`: all tasks are `done`
+7. `idle`: no tasks at all for this department
 
-Next action:
-1. The `is_next` task first
-2. Else the non-blocked `active` task ordered by `priority_rank`, then `sort_order`, then due date (nulls last in each)
+The type is: `'blocked' | 'stale' | 'active' | 'waiting' | 'not_started' | 'done' | 'idle'`
+
+Annunciator visibility:
+- **Loud tiles** (shown individually): `blocked` (warning), `stale` (caution), `active` (neutral with go dot)
+- **Quiet summary** (collapsed into one muted line): `waiting`, `not_started`, `done`, `idle`
+  Format: `"{n} WP başlamadı · {k} WP beklemede · {m} tamamlandı"` (omit a segment if its count is zero; omit the entire line if all WPs are loud)
+
+### Next action
+
+1. The non-archived, non-done task with `is_next = 1` (first found)
+2. Else the non-blocked `active` task ordered by: `priority_rank` ASC (nulls last), `sort_order` ASC (nulls last), `due_date` ASC (nulls last)
 3. Else the `todo` task with the same ordering
-4. Else none (empty state)
+4. Else none → empty state
 
-Progress:
+### Progress
+
 - Days left = `project.deadline` minus today in `project.timezone`.
-- Current milestone = first milestone in order that still has non-done tasks. Percent = done / total tasks tagged with it. Without a milestone property: overall done / total.
+- No milestones: progress = done / total non-archived tasks.
+- Format: `"{done} / {total} görev tamamlandı · %{percent}"`
+
+### Counts
+
+- **Tıkalı**: count of non-archived, non-done tasks with `blocked = 1`
+- **Devam**: count of non-archived tasks with `status_group = 'active'` and `blocked = 0`
+- **Bu hafta biten**: count of `TASK_COMPLETED` events since Monday 00:00 `Europe/Istanbul`
 
 ## Web
 

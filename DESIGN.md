@@ -62,11 +62,12 @@ Desktop (≥1024px):
 ┌──────────────────────────────────────────────────────────────┐
 │ BUMIN-2                               Son senkron 3 dk önce  │
 │ 95 gün kaldı                  31 Aralık, 2 uçan prototip     │
-│ ▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░  Milestone 2/5, %38                   │
+│ ▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░  38 / 112 görev tamamlandı · %34       │
 ├────────────────────────────────┬─────────────────────────────┤
 │ Şimdi ne yapmalıyım?           │  Tıkalı    Biten    Devam   │
-│ RTK base kurulumunu doğrula    │    2         5        7     │
-│ 01 Avionik, bugün              │         (bu hafta)          │
+│ WP-01.7b — GCS mimarisi: Mod   │    2         5        7     │
+│ A… (iki satır, title'da tam)   │       (bu hafta biten)      │
+│ WP-01 Avionik, bugün           │                             │
 ├────────────────────────────────┴─────────────────────────────┤
 │ Kim ne durumda?                                              │
 │ [00 •] [01 •] [02 4 gün sessiz] [03 Tıkalı] [04 •] [YH •]    │
@@ -79,7 +80,7 @@ Desktop (≥1024px):
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Mobile (390px): one column, same order. Counts become a row of three. Annunciator tiles in a 3-column grid.
+Mobile (390px): one column, same order. Counts become a row of three. Annunciator tiles in a 2-column grid.
 
 Each panel has at most one small muted label, phrased as the question it answers. No other labels above content.
 
@@ -88,9 +89,9 @@ Each panel has at most one small muted label, phrased as the question it answers
 One file each under `src/components/dashboard/`:
 
 - `deadline-strip` — project name, days left (40px), deadline and deliverable, progress bar with milestone text, sync status on the right.
-- `next-action` — one task title (18px), department and due date as meta. Clicking opens the Notion page.
+- `next-action` — one task title (18px, clamped to 3 lines on mobile, 2 lines on desktop), department and due date as meta. Clicking opens the Notion page.
 - `counts` — blocked, completed this week, active. Blocked number uses `warning` only when above zero.
-- `annunciator` — one tile per department from config, plus nothing else. Tile: department id and name, status word. Clicking goes to `/departman/[id]`.
+- `annunciator` — one tile per loud department (blocked, stale, active). Tile: WP id and name (wrapping up to 3 lines without truncation on mobile), status word. Clicking goes to the WP's Drive folder in a new tab. All quiet departments (waiting, not_started, done, idle) collapse into one muted summary line below the tiles (idle counted together with not_started as "başlamadı", e.g. "15 WP başlamadı · 1 WP beklemede · 2 tamamlandı"). If all departments are quiet, no tiles are shown, only the summary.
 - `event-feed` — max 5 rows on the dashboard. Rows are bordered list rows, not cards. Icon, sentence, department id, relative time. Clicking opens the source in a new tab.
 - `sync-status` — "Son senkron N dk önce". See stale data below.
 
@@ -102,6 +103,7 @@ Icons (lucide): `check` completed, `play` started, `octagon-alert` blocked, `cir
 
 - Rows newer than the last visit get a small `ink` dot at the start. Store the last visit time in a cookie, updated on each dashboard view.
 - No animations in v1. Respect `prefers-reduced-motion` anyway.
+- Task titles in the next-action panel are clamped to 3 lines on mobile (<768px) and 2 lines on desktop (`line-clamp-3 md:line-clamp-2`), with the full title in the `title` attribute. Event feed sentences are clamped to two lines. Never truncate titles in the data layer.
 - Stale data: if `/api/health` reports `ok: false`, show a full-width `caution` banner at the very top: "Veriler N dk önce güncellendi. Senkron çalışmıyor olabilir." The user must never mistake old data for current data.
 
 ## Copy
@@ -119,7 +121,14 @@ Event sentences (composed in the UI from structured event fields):
 | `DOC_CREATED` | `Yeni belge: {dosya adı, uzantısız}` |
 | `DOC_UPDATED` | `{dosya adı, uzantısız} güncellendi` |
 
-Department status words: "Yolunda", "{n} gün sessiz", "Tıkalı", "Boşta".
+Department status words:
+- `blocked` → "Tıkalı"
+- `stale` → "{n} gün sessiz"
+- `active` → "Yolunda"
+- `waiting` → (quiet, in summary line)
+- `not_started` → (quiet, in summary line)
+- `done` → (quiet, in summary line)
+- `idle` → (quiet, counted with not_started as "başlamadı" in summary line)
 
 Relative time: "az önce", "12 dk", "3 sa", "dün", "3 gün". Full date in the `title` attribute.
 
