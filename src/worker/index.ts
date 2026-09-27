@@ -2,6 +2,8 @@ import { loadConfig } from "@/server/config";
 import { getWriterDb } from "@/server/db/client";
 import { syncState } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
+import { syncNotion } from "@/server/integrations/notion/collector";
+import { normalizePending } from "@/server/events/process";
 
 async function main() {
   console.log(
@@ -46,17 +48,35 @@ async function main() {
   while (running) {
     try {
       const now = new Date().toISOString();
+      const config = loadConfig();
+
+      // Notion sync
+      const notionStart = Date.now();
+      await syncNotion(db, config);
+      console.log(
+        JSON.stringify({
+          event: "sync_notion_complete",
+          durationMs: Date.now() - notionStart,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+
+      // Normalize pending raw events
+      const normalizeStart = Date.now();
+      normalizePending(db);
+      console.log(
+        JSON.stringify({
+          event: "normalize_complete",
+          durationMs: Date.now() - normalizeStart,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+
+      // Heartbeat
       db.update(syncState)
         .set({ lastSuccessAt: now })
         .where(eq(syncState.source, "worker"))
         .run();
-
-      console.log(
-        JSON.stringify({
-          event: "sync_loop_tick",
-          timestamp: now,
-        }),
-      );
     } catch (err) {
       console.error(
         JSON.stringify({

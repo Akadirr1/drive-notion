@@ -63,10 +63,10 @@ Phase 2 wires the Notion data source into the worker loop. After this phase:
 - **Full fetch every sync.** The task database is small (a few hundred pages = 1–3 API requests). Every sync fetches all non-trashed pages with no filter. This is simpler and solves the problem that the query endpoint does not return trashed pages, so incremental sync could never detect deletions.
 - **First full sync is a seed.** It fills snapshots, sets `seeded = 1`, and emits **no** semantic events (the feed is not flooded on first run).
 - **Subsequent syncs** compare each fetched page against its snapshot. Only actual field changes produce `raw_events`. Pages whose `page_id` was in the snapshot but was not returned by a **complete, successful** fetch are marked `archived = 1` (no event). If the fetch failed or was partial (any error before all pages were consumed), no pages are marked archived.
-- **Schema validation at the start of every sync.** `dataSources.retrieve()` fetches the data source schema, then every configured property is checked for existence and expected type. A mismatch fails with a readable error naming the property, expected type, and `config/project.yaml` — even when the query returns zero pages. If `config.notion.status_groups` is omitted, groups are derived from the status property schema **by position** (1st → `todo`, 2nd → `active`, 3rd → `done`), not by English group names.
+- **Schema validation at the start of every sync.** `dataSources.retrieve()` fetches the data source schema, then every configured property is checked for existence and expected type. A mismatch fails with a readable error naming the property, expected type, and `config/project.yaml` — even when the query returns zero pages. Status groups are always derived from the status property schema **by position** (1st → `todo`, 2nd → `active`, 3rd → `done`). If `config.notion.status_groups` is set, it overrides only the options it lists; any status value it does not list falls back to its schema-derived group with a warning, never silently to "todo".
 - **The normalizer** converts unprocessed `raw_events` into `project_events` according to ARCHITECTURE.md.
 - **SDK-managed timeout and retry.** The `Client` is constructed with `timeoutMs: 30_000`. The SDK's built-in retry (2 retries, exponential backoff + jitter, `Retry-After` header) handles 429/529 errors. No custom retry code is written.
-- **Property mapping** is a pure function `mapPage(page, config, statusGroupMap)` with unit tests.
+- **Property mapping** is a pure function `mapPage(page, config, schemaGroups, warn)` with unit tests.
 - **Snapshot diff** is a pure function `diffTask(before, after)` that returns an array of raw event descriptors. Unit-tested with fixtures.
 - **Raw event kinds encode the new value**: `status:todo`, `status:active`, `status:done`, `blocked:true`, `blocked:false`. This prevents the unique constraint `(source, externalId, kind, occurredAt)` from swallowing a second real change within the same minute.
 - **Transactional writes.** Each page's snapshot upsert + raw event inserts are wrapped in one SQLite transaction. Each raw event's project_events insert + `processed = 1` update are wrapped in one transaction.
@@ -75,6 +75,7 @@ Phase 2 wires the Notion data source into the worker loop. After this phase:
 - `"notion"` is added to `IMPLEMENTED_SOURCES`.
 - `scripts/smoke-notion.ts` proves API access using `client.ts` and `mapPage`. No second Client, no duplicated mapping.
 - The normalizer is a **pure function** with fixture-based unit tests.
+- **Offline integration testing.** `tests/collector.test.ts` validates `syncNotion` and `normalizePending` against an in-memory SQLite database with real migrations and mocked Notion client.
 
 ---
 
@@ -99,7 +100,7 @@ Replace ARCHITECTURE.md § Notion sync with:
 
 - Every sync does a full fetch (no cursor filter). The database is small (a few hundred pages); the query endpoint does not return trashed pages, so full fetch is needed to detect deletions.
 - At the start of each sync, retrieve the data source schema with `dataSources.retrieve()`. Validate that every property named in `config.notion.properties` exists in the schema with the expected type. Fail with a readable error if not.
-- If `config.notion.status_groups` is defined, use it. Otherwise derive groups from the status property schema by position: first group → `todo`, second → `active`, third → `done`.
+- Status groups are always derived from the status property schema by position: first group → `todo`, second → `active`, third → `done`. If `config.notion.status_groups` is defined, it overrides only the options it lists; a status value it does not list falls back to its schema-derived group with a warning, never silently to "todo".
 - Map properties through `config.notion.properties`. Compare each page with its snapshot. Only an actual field change produces a raw event.
 - Raw event kinds encode the new value (e.g. `status:active`, `blocked:true`) so the unique constraint cannot swallow a second change within the same minute.
 - First full sync is a seed: fill snapshots, set `seeded`, emit no semantic events.
@@ -157,10 +158,17 @@ export function deriveStatusGroups(
   statusPropertyName: string,
 ): Map<string, 'todo' | 'active' | 'done'>;
 
-/** Builds status-group map from config.notion.status_groups (explicit mapping). */
-export function buildConfigStatusGroups(
-  statusGroups: { todo: string[]; active: string[]; done: string[] },
-): Map<string, 'todo' | 'active' | 'done'>;
+/** Resolves a status value's group according to Amendment B:
+ *  - Always derives baseline groups from the schema.
+ *  - If config.notion.status_groups is set, it overrides only the options it lists.
+ *  - A status value not listed in config overrides falls back to its schema-derived group with a warning.
+ *  - Never falls silently to "todo". */
+export function resolveStatusGroup(
+  statusName: string,
+  schemaGroups: Map<string, 'todo' | 'active' | 'done'>,
+  configStatusGroups: { todo?: string[]; active?: string[]; done?: string[] } | undefined,
+  warn: (msg: object) => void,
+): 'todo' | 'active' | 'done';
 
 /** The snapshot shape that maps to notion_tasks columns. */
 export interface NotionTaskSnapshot {
@@ -182,12 +190,12 @@ export interface NotionTaskSnapshot {
 /** Maps a Notion page to a snapshot.
  *  - Joins ALL plain_text segments for title and rich_text (not just [0]).
  *  - Unknown department → null + logs via the provided warn callback.
- *  - Unknown status → defaults to 'todo' + warns.
+ *  - Resolves status group via resolveStatusGroup (schema groups + config overrides + warning on fallback).
  *  - Missing optional properties → default values (null/false). */
 export function mapPage(
   page: PageObjectResponse,
   config: ProjectConfig,
-  statusGroupMap: Map<string, 'todo' | 'active' | 'done'>,
+  schemaGroups: Map<string, 'todo' | 'active' | 'done'>,
   warn: (msg: object) => void,
 ): NotionTaskSnapshot;
 ```
@@ -307,11 +315,8 @@ All descriptors use externalId = after.pageId, occurredAt = after.lastEditedTime
    validateSchema(schema, config)
    // throws PropertyConfigError on mismatch → caught in step 11
 
-5. Build status group map:
-   If config.notion.status_groups exists:
-     statusGroupMap = buildConfigStatusGroups(config.notion.status_groups)
-   Else:
-     statusGroupMap = deriveStatusGroups(schema, config.notion.properties.status)
+5. Derive status groups:
+   schemaGroups = deriveStatusGroups(schema, config.notion.properties.status)
 
 6. Full fetch (paginate, no filter):
    const allPages: PageObjectResponse[] = []
@@ -327,7 +332,7 @@ All descriptors use externalId = after.pageId, occurredAt = after.lastEditedTime
 7. Process pages:
    const seenPageIds = new Set<string>()
    for (const page of allPages) {
-     const snapshot = mapPage(page, config, statusGroupMap, warn)
+     const snapshot = mapPage(page, config, schemaGroups, warn)
      seenPageIds.add(snapshot.pageId)
 
      // Read existing snapshot
@@ -816,7 +821,21 @@ Also export a minimal `DataSourceSchema` fixture for `validateSchema` tests and 
 | 7 | same as before | same as after | `[]` (no-op) |
 | 8 | All events include `title`, `departmentId`, `url` in `after` payload | — |
 
-### 4.16. `tests/health.test.ts` — MODIFY
+### 4.16. `tests/collector.test.ts` — CREATE
+
+**Purpose:** Offline integration test for `syncNotion` and `normalizePending`, using an in-memory SQLite database (`better-sqlite3 ":memory:"` with the real migrations applied) and `vi.mock` of `src/server/integrations/notion/client.ts` returning fixture schema and pages.
+
+**Test cases:**
+
+| # | Scenario | Verification |
+|---|---|---|
+| 1 | First sync (seed) | Seeds snapshots into `notion_tasks`, sets `seeded = 1` in `sync_state`, writes **no** `raw_events` |
+| 2 | Status change + normalization | Second sync with one task moved to active writes a `status:active` raw event; calling `normalizePending(db)` creates a `TASK_STARTED` event in `project_events` and marks the raw event `processed = 1` |
+| 3 | Page missing from complete fetch | Snapshot is marked `archived = 1` with no event emitted |
+| 4 | Query error resilience | Query throwing on second page archives nothing, records `last_error` and `last_error_at` in `sync_state`, and does NOT throw out of `syncNotion` |
+| 5 | Unchanged sync (no-op) | An unchanged second sync writes nothing new to `notion_tasks`, `raw_events`, or `project_events` |
+
+### 4.17. `tests/health.test.ts` — MODIFY
 
 **Purpose:** Update the `IMPLEMENTED_SOURCES` assertion.
 
@@ -827,11 +846,11 @@ Also export a minimal `DataSourceSchema` fixture for `validateSchema` tests and 
 
 Add a test case: "notion source without recent success makes ok = false".
 
-### 4.17. `ARCHITECTURE.md` — MODIFY
+### 4.18. `ARCHITECTURE.md` — MODIFY
 
 Replace § Notion sync as described in §3 of this plan.
 
-### 4.18. `HANDOFF.md` — MODIFY
+### 4.19. `HANDOFF.md` — MODIFY
 
 Rewrite for Phase 2 completion.
 
@@ -890,24 +909,28 @@ Run `pnpm typecheck`.
 Create `src/server/integrations/notion/collector.ts` (§4.4).
 Run `pnpm typecheck`.
 
-### Step 12: Wire the worker + update scripts
+### Step 12: Create offline collector integration tests
+Create `tests/collector.test.ts` (§4.16).
+Run `pnpm test` — all tests must pass.
+
+### Step 13: Wire the worker + update scripts
 Modify `src/worker/index.ts` (§4.8).
 Modify `package.json` scripts (§4.9).
 Run `pnpm typecheck`.
 
-### Step 13: Update health
+### Step 14: Update health
 Modify `src/server/queries/health.ts` (§4.10).
-Modify `tests/health.test.ts` (§4.16).
+Modify `tests/health.test.ts` (§4.17).
 Run `pnpm test` — all tests must pass.
 
-### Step 14: Create smoke script
+### Step 15: Create smoke script
 Create `scripts/smoke-notion.ts` (§4.11).
 Manual run: `pnpm smoke:notion` (requires real `.env` and `config/project.yaml`).
 
-### Step 15: Update ARCHITECTURE.md
-Modify `ARCHITECTURE.md` § Notion sync (§4.17).
+### Step 16: Update ARCHITECTURE.md
+Modify `ARCHITECTURE.md` § Notion sync (§4.18).
 
-### Step 16: Quality gate
+### Step 17: Quality gate
 ```bash
 pnpm typecheck
 pnpm lint
@@ -916,8 +939,8 @@ pnpm build
 ```
 All four must pass.
 
-### Step 17: Update HANDOFF.md
-Rewrite `HANDOFF.md` to reflect Phase 2 completion (§4.18).
+### Step 18: Update HANDOFF.md
+Rewrite `HANDOFF.md` to reflect Phase 2 completion (§4.19).
 
 ---
 
@@ -931,7 +954,7 @@ Rewrite `HANDOFF.md` to reflect Phase 2 completion (§4.18).
 | Notion 5xx (non-529) | SDK | Not retried on POST. Propagates to collector. |
 | Property missing / wrong type in schema | `map-page.ts` (`validateSchema`) | `PropertyConfigError` with readable message naming property, expected type, and `config/project.yaml`. Caught by collector, recorded in `sync_state.last_error`. Loop continues. |
 | Unknown department value | `map-page.ts` (`mapPage`) | `department_id = null`, warn callback called. Sync continues. |
-| Unknown status value | `map-page.ts` (`mapPage`) | Falls into default group (`todo`), warns. Sync continues. |
+| Status not in config overrides | `map-page.ts` (`resolveStatusGroup`) | Falls back to schema-derived group with warning (`notion_status_fallback_to_schema`), never silently to 'todo'. If not in schema either, warns and defaults to 'todo'. |
 | Unknown milestone value | `map-page.ts` (`mapPage`) | `milestone_id = null`. Sync continues. |
 | Partial fetch (error before all pages consumed) | `collector.ts` | `fetchComplete` stays `false`. No pages are marked archived. Error recorded. Loop continues. |
 | Any other error | `collector.ts` (top-level catch in `syncNotion`) | Recorded in `sync_state.last_error` and `last_error_at`. Loop continues. |
@@ -994,13 +1017,22 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm build
 - `blocked:false` → `TASK_UNBLOCKED`
 - `departmentId = null` → still produces an event
 
-#### 8.3. mapPage and diffTask have fixture tests
+#### 8.2b. Collector and processor integration tests pass
+**Verify:** `pnpm test -- tests/collector.test.ts` passes with 5 scenarios covering:
+- First sync (seed) creates snapshots, sets seeded = 1, writes no raw_events
+- Second sync with task moved to active writes status:active raw event, normalizePending creates TASK_STARTED
+- Page missing from complete fetch gets archived = 1 with no event
+- Query throwing on second page archives nothing, records last_error, does not throw out of syncNotion
+- Unchanged second sync writes nothing new
+
+#### 8.3. mapPage, resolveStatusGroup, and diffTask have fixture tests
 **Verify:** `pnpm test -- tests/map-page.test.ts` passes covering:
 - Multi-segment title and rich_text join all segments
 - Missing optional properties use defaults
 - Unknown department → null + warn
 - Schema validation: missing property → readable error with config path; wrong type → readable error
-- Status group derivation by position
+- Status group derivation by position (1st → todo, 2nd → active, 3rd → done)
+- Status group resolution with config overrides: listed options overridden, unlisted option falls back to schema group with warning, never silently to todo
 - diffTask: new tasks, status changes, blocked changes, simultaneous changes, no-op
 
 #### 8.4. `IMPLEMENTED_SOURCES` includes "notion"
@@ -1091,6 +1123,7 @@ No event emitted for archival.
 | `tests/fixtures/notion-pages.ts` | CREATE | Fixture Notion pages for mapPage/diffTask tests |
 | `tests/normalizer.test.ts` | CREATE | 10+ test cases covering every normalizer row |
 | `tests/map-page.test.ts` | CREATE | mapPage, validateSchema, deriveStatusGroups, diffTask tests |
+| `tests/collector.test.ts` | CREATE | Offline integration test for syncNotion and normalizePending |
 | `tests/health.test.ts` | MODIFY | Update `IMPLEMENTED_SOURCES` assertion |
 | `ARCHITECTURE.md` | MODIFY | Rewrite § Notion sync for full-fetch model |
 | `HANDOFF.md` | MODIFY | Rewrite for Phase 2 completion |

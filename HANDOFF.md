@@ -1,24 +1,42 @@
 # Current state
 
-Phase 1 (Database and worker skeleton) is complete. The SQLite schema, Drizzle migrations, lazy DB clients (read-only for web, read-write for worker), worker sync loop with heartbeat, `/api/health` endpoint, and health unit tests are implemented and verified. All quality-gate checks pass.
+Phase 2 (Notion pipeline) offline implementation and integration tests are complete on branch `feat/phase-2-notion`. The Notion SDK client, schema validation, status group resolution (with positional schema derivation and config overrides with fallback warnings), pure page mapping and snapshot diffing, semantic event normalizer, transactional event processor, collector, worker integration, health query update, smoke script, and offline test suite are implemented and verified. All quality-gate checks pass.
 
 ## Completed
 
-- Full SQLite schema defined in `src/server/db/schema.ts` for all five tables (`sync_state`, `notion_tasks`, `drive_files`, `raw_events`, `project_events`) with nullable `notion_tasks.department_id` and composite unique constraint on `raw_events`.
-- Drizzle migration generated and tracked in git under `src/server/db/migrations/` along with `meta/_journal.json`.
-- Database clients in `src/server/db/client.ts`: `getWriterDb()` (read-write, WAL, busy timeout, runs migrations from repo root) and `getReaderDb()` (read-only, busy timeout, returns null if DB file does not exist without caching null). No DB opened at module top level.
-- Worker entry point in `src/worker/index.ts`: validates config on start, seeds initial `sync_state` rows (`notion`, `drive`, `worker`), heartbeats via `worker` row in `sync_state`, and loops with JSON logging.
-- Added `"worker": "tsx src/worker/index.ts"` to `package.json` scripts.
-- Health query module in `src/server/queries/health.ts` with pure `computeHealth` and DB-backed `getHealth`, using explicit `IMPLEMENTED_SOURCES` code constant (empty in Phase 1).
-- Route handler in `src/app/api/health/route.ts`: always responds with HTTP 200, carrying status in `ok` field so container healthchecks stay healthy while allowing UI to detect stale data.
-- Unit test suite in `tests/health.test.ts` covering all 10 health computation scenarios and verifying empty `IMPLEMENTED_SOURCES`. Total 14 unit tests pass.
-- Integration smoke tests verified: dev server returns `ok: false` with HTTP 200 when DB is missing; worker creates DB and enables WAL; dev server picks up DB without restart and returns `ok: true`.
-- Verified `pnpm build` succeeds without a DB file on disk.
-- Updated `ARCHITECTURE.md` documentation for `sync_state` worker row, nullable `notion_tasks.department_id`, and `/api/health` payload behavior.
+- Pinned `@notionhq/client@5.26.0` in `package.json` with SDK `timeoutMs: 30_000` and automatic retry handling.
+- Notion client module in `src/server/integrations/notion/client.ts`: singleton `getNotionClient()`, `queryDataSource()`, `retrieveDataSource()`.
+- Pure mapping module in `src/server/integrations/notion/map-page.ts`:
+  - `validateSchema()` checks configured properties against data source schema, throwing readable `PropertyConfigError`.
+  - `deriveStatusGroups()` derives status groups from schema status options by position (1st → todo, 2nd → active, 3rd → done).
+  - `resolveStatusGroup()` (Amendment B) resolves status groups using schema derivation as baseline; config `status_groups` overrides only listed options, and unlisted options fall back to schema group with warning (`notion_status_fallback_to_schema`), never falling silently to "todo".
+  - `mapPage()` maps Notion pages into `NotionTaskSnapshot`, joining all text segments, handling missing optional properties, and warning on unknown departments.
+- Pure diffing module in `src/server/integrations/notion/diff-task.ts`: `diffTask()` and `buildAfterPayload()` returning raw event descriptors with encoded kinds (`status:active`, `status:done`, `blocked:true`, `blocked:false`).
+- Semantic event types in `src/server/events/types.ts` and pure normalizer in `src/server/events/normalize.ts`: maps raw events to `TASK_STARTED`, `TASK_COMPLETED`, `TASK_BLOCKED`, `TASK_UNBLOCKED`.
+- Event processor in `src/server/events/process.ts`: `normalizePending()` processes pending raw events into `project_events` transactionally and marks them `processed = 1`.
+- Notion collector in `src/server/integrations/notion/collector.ts`: full fetch, seed mode detection, snapshot diff, transactional writes, archival detection on complete fetches, and error recording in `sync_state` without rethrowing.
+- Worker loop in `src/worker/index.ts`: wired `syncNotion()` and `normalizePending()`.
+- Added `"notion"` to `IMPLEMENTED_SOURCES` in `src/server/queries/health.ts` and updated `tests/health.test.ts`.
+- Smoke diagnostic script in `scripts/smoke-notion.ts` for testing real Notion API access.
+- Updated `ARCHITECTURE.md` § Notion sync for full-fetch model and no-cursor Notion sync.
+- Comprehensive test suites:
+  - `tests/map-page.test.ts` (22 tests covering schema validation, status derivation, config overrides with fallback warning, page mapping, diffTask).
+  - `tests/normalizer.test.ts` (12 tests covering all normalizer rows, new task creation, blocked changes, unassigned departments, error handling).
+  - `tests/collector.test.ts` (Amendment A: 5 offline integration tests with in-memory SQLite and mocked client covering seed, status change + normalize, archival, query error resilience, unchanged no-op).
+  - `tests/health.test.ts` (12 tests covering Phase 2 health computation with notion source).
+- Full quality gate passes: `pnpm typecheck`, `pnpm lint`, `pnpm test` (54 tests passing), `pnpm build`.
 
 ## In progress
 
-- Nothing.
+Live checks (8.7–8.14) awaiting real `NOTION_TOKEN` in `.env` and `config/project.yaml`:
+- 8.7 Smoke script (`pnpm smoke:notion`) verification with live data.
+- 8.8 First sync is a seed verification on disk (`notion_tasks > 0`, `seeded = 1`, `raw_events = 0`, `project_events = 0`).
+- 8.9 Status change in Notion creates `TASK_STARTED` event.
+- 8.10 Check "Tıkalı" on task creates `TASK_BLOCKED` event with blocker note.
+- 8.11 `/api/health` returns `sources.notion.implemented = true` and `ok = true`.
+- 8.12 Unknown department stores `department_id = NULL` and logs warning.
+- 8.13 Missing/wrong property records readable error in `sync_state.last_error`.
+- 8.14 Trashed task in Notion marked `archived = 1` with no event emitted.
 
 ## Known issues
 
@@ -26,11 +44,12 @@ Phase 1 (Database and worker skeleton) is complete. The SQLite schema, Drizzle m
 
 ## Next recommended step
 
-Phase 2: Notion pipeline — client, collector, seed, snapshot diff, normalizer for task events, fixture tests, `smoke-notion.ts`.
+1. Fill `config/project.yaml` and set `NOTION_TOKEN` in `.env`.
+2. Run `pnpm smoke:notion` and complete live checks 8.7–8.14.
+3. Proceed to Phase 3: Dashboard UI foundation.
 
 ## Important context
 
-- The owner fills `config/project.yaml` before Phase 2: Notion tasks data source ID and property names, Drive root folder ID, department folder IDs, milestones.
-- Before Phase 2: connect the Notion integration to the tasks database with read-content capability only.
-- Before Phase 4: share the BUMIN Drive root folder with the Google service account email as Viewer.
-- Phase 5: better-sqlite3 may compile from source; the Dockerfile builder stage needs python3, make and g++.
+- `@notionhq/client` version 5.26.0 has native `client.dataSources.query` and `client.dataSources.retrieve`.
+- Notion sync performs a full fetch every cycle to detect trashed/deleted pages that the query endpoint omits. Notion does not use a cursor in `sync_state`.
+- Status group resolution derives groups from schema options by position; config overrides apply only to listed options, while unlisted options fall back to schema with a warning.
